@@ -6,14 +6,11 @@ compatibility_date = "2024-01-01"
 [site]
 bucket = "./public"
 
-# Durable Objects bindings
-[[durable_objects.bindings]]
-name = "LOBBY"
-class_name = "Lobby"
-
-[[durable_objects.bindings]]
-name = "ROOM"
-class_name = "Room"
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "chinachess"
+database_id = "d9f76ae4-9ad7-4ab9-a1a5-973c60a0e251"
 
 [[routes]]
 pattern = "/*"
