@@ -1,0 +1,55 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Chinese Chess Online</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Lobby Screen -->
+        <div id="lobby" class="screen">
+            <h1>中国象棋</h1>
+            <div class="lobby-container">
+                <div class="room-section">
+                    <h2>Create Room</h2>
+                    <input type="text" id="roomName" placeholder="Room Name" maxlength="20">
+                    <button id="createRoomBtn">Create Room</button>
+                </div>
+                <div class="room-section">
+                    <h2>Join Room</h2>
+                    <input type="text" id="joinRoomId" placeholder="Room ID">
+                    <button id="joinRoomBtn">Join Room</button>
+                </div>
+                <div id="connectionStatus" class="status disconnected">Disconnected</div>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game" class="screen hidden">
+            <div class="game-header">
+                <div class="player-info">
+                    <span id="opponentName">Waiting...</span>
+                    <span class="color-indicator black"></span>
+                </div>
+                <div class="game-status">
+                    <span id="turnIndicator">Your Turn</span>
+                    <button id="leaveRoomBtn">Leave</button>
+                </div>
+                <div class="player-info">
+                    <span id="myName">You</span>
+                    <span class="color-indicator red"></span>
+                </div>
+            </div>
+            <div class="board-container">
+                <div id="chessBoard"></div>
+            </div>
+            <div id="gameMessage" class="game-message"></div>
+        </div>
+    </div>
+
+    <script type="module" src="game.js"></script>
+</body>
+</html>

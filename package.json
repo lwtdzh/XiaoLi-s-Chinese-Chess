@@ -1,0 +1,14 @@
+
+{
+  "name": "xiaoli-chinese-chess",
+  "version": "1.0.0",
+  "description": "Chinese Chess game with multiplayer support on Cloudflare Pages",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
