@@ -1,6 +1,76 @@
 
+// Database initialization flag (in-memory, per-instance)
+let dbInitialized = false;
+
+// SQL schema for automatic initialization
+const SCHEMA_SQL = `
+-- Rooms table
+CREATE TABLE IF NOT EXISTS rooms (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    red_player_id TEXT,
+    black_player_id TEXT,
+    status TEXT DEFAULT 'waiting'
+);
+
+-- Game state table
+CREATE TABLE IF NOT EXISTS game_state (
+    room_id TEXT PRIMARY KEY,
+    board TEXT NOT NULL,
+    current_turn TEXT NOT NULL,
+    last_move TEXT,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+
+-- Players table
+CREATE TABLE IF NOT EXISTS players (
+    id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    color TEXT NOT NULL,
+    connected INTEGER DEFAULT 1,
+    last_seen INTEGER NOT NULL,
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_rooms_name ON rooms(name);
+CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status);
+CREATE INDEX IF NOT EXISTS idx_players_room_id ON players(room_id);
+CREATE INDEX IF NOT EXISTS idx_game_state_updated ON game_state(updated_at);
+`;
+
+async function initializeDatabase(db) {
+  if (dbInitialized) return true;
+  
+  try {
+    // Execute all SQL statements
+    const statements = SCHEMA_SQL
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+    
+    for (const statement of statements) {
+      await db.exec(statement);
+    }
+    
+    dbInitialized = true;
+    console.log('Database initialized successfully');
+    return true;
+  } catch (error) {
+    console.error('Error initializing database:', error);
+    return false;
+  }
+}
+
 export async function onRequest(context) {
   const url = new URL(context.request.url);
+  
+  // Initialize database on first request
+  if (context.env.DB) {
+    await initializeDatabase(context.env.DB);
+  }
   
   // Handle WebSocket upgrade
   if (url.pathname === '/ws') {
