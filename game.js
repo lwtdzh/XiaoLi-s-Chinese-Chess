@@ -510,8 +510,15 @@ class ChineseChess {
     }
 
     showMessage(message) {
-        const messageElement = document.getElementById('gameMessage');
-        messageElement.textContent = message;
+        const lobbyMessageElement = document.getElementById('lobbyMessage');
+        const gameMessageElement = document.getElementById('gameMessage');
+        
+        if (lobbyMessageElement) {
+            lobbyMessageElement.textContent = message;
+        }
+        if (gameMessageElement) {
+            gameMessageElement.textContent = message;
+        }
     }
 
     connectWebSocket() {
