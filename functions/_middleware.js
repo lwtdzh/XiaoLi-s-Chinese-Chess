@@ -150,12 +150,26 @@ async function handleMessage(ws, data, connectionId, env) {
 
 async function createRoom(ws, roomName, connectionId, db) {
   try {
+    console.log('[createRoom] Starting room creation:', { roomName, connectionId });
+    
+    // Check if database is available
+    if (!db) {
+      console.error('[createRoom] Database not available');
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Database not configured. Please check D1 binding.'
+      }));
+      return;
+    }
+    
     // Check if room name already exists
+    console.log('[createRoom] Checking for existing room...');
     const existingRoom = await db.prepare(
       'SELECT id FROM rooms WHERE name = ?'
     ).bind(roomName).first();
     
     if (existingRoom) {
+      console.log('[createRoom] Room already exists:', existingRoom);
       ws.send(JSON.stringify({
         type: 'error',
         message: 'Room name already exists'
@@ -166,21 +180,35 @@ async function createRoom(ws, roomName, connectionId, db) {
     // Create new room
     const roomId = generateRoomId();
     const timestamp = Date.now();
+    console.log('[createRoom] Creating room:', { roomId, timestamp });
     
-    await db.batch([
-      db.prepare('INSERT INTO rooms (id, name, created_at, red_player_id) VALUES (?, ?, ?, ?)')
-        .bind(roomId, roomName, timestamp, connectionId),
-      db.prepare('INSERT INTO game_state (room_id, board, current_turn, updated_at) VALUES (?, ?, ?, ?)')
-        .bind(roomId, JSON.stringify(initializeBoard()), 'red', timestamp),
-      db.prepare('INSERT INTO players (id, room_id, color, connected, last_seen) VALUES (?, ?, ?, ?, ?)')
-        .bind(connectionId, roomId, 'red', 1, timestamp)
-    ]);
+    try {
+      await db.batch([
+        db.prepare('INSERT INTO rooms (id, name, created_at, red_player_id) VALUES (?, ?, ?, ?)')
+          .bind(roomId, roomName, timestamp, connectionId),
+        db.prepare('INSERT INTO game_state (room_id, board, current_turn, updated_at) VALUES (?, ?, ?, ?)')
+          .bind(roomId, JSON.stringify(initializeBoard()), 'red', timestamp),
+        db.prepare('INSERT INTO players (id, room_id, color, connected, last_seen) VALUES (?, ?, ?, ?, ?)')
+          .bind(connectionId, roomId, 'red', 1, timestamp)
+      ]);
+      console.log('[createRoom] Room created successfully in database');
+    } catch (dbError) {
+      console.error('[createRoom] Database error:', dbError);
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: `Database error: ${dbError.message}`
+      }));
+      return;
+    }
     
     // Update connection info
     const connection = connections.get(connectionId);
     if (connection) {
       connection.roomId = roomId;
       connection.playerId = connectionId;
+      console.log('[createRoom] Connection updated:', { roomId, connectionId });
+    } else {
+      console.warn('[createRoom] Connection not found:', connectionId);
     }
     
     ws.send(JSON.stringify({
@@ -189,11 +217,12 @@ async function createRoom(ws, roomName, connectionId, db) {
       color: 'red',
       roomName: roomName
     }));
+    console.log('[createRoom] Room creation completed successfully');
   } catch (error) {
-    console.error('Error creating room:', error);
+    console.error('[createRoom] Unexpected error:', error);
     ws.send(JSON.stringify({
       type: 'error',
-      message: 'Failed to create room'
+      message: `Failed to create room: ${error.message}`
     }));
   }
 }
