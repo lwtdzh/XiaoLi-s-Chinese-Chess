@@ -21,14 +21,14 @@ You're seeing this error because the D1 database is not bound to your Cloudflare
 1. Click on the **"Settings"** tab at the top
 2. Click on **"Functions"** in the left menu
 
-### Step 4: Add D1 Database Binding
+### Step 4: Add D1 Binding
 
-1. Scroll down to **"D1 database bindings"** section
-2. Click **"Add binding"** button
-3. Fill in the form:
-   - **Variable name**: `DB` (exactly this, case-sensitive)
-   - **D1 database**: Select `chinese_chess_db` from the dropdown
-4. Click **"Save"**
+1. Scroll down to "D1 database bindings" section
+2. Click "Add binding" button
+3. Fill in:
+   - Variable name: `DB` (must be exactly this, uppercase)
+   - D1 database: Select `chinachess` (your database)
+4. Click "Save"
 
 ### Step 5: Deploy the Changes
 
