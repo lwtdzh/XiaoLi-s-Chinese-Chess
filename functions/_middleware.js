@@ -73,6 +73,17 @@ async function handleMessage(ws, data) {
 }
 
 async function createRoom(ws, roomName, connectionId) {
+  // Check if room name already exists
+  for (const [id, room] of rooms.entries()) {
+    if (room.name === roomName) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Room name already exists'
+      }));
+      return;
+    }
+  }
+  
   const roomId = generateRoomId();
   
   const room = {
@@ -86,6 +97,7 @@ async function createRoom(ws, roomName, connectionId) {
   };
   
   rooms.set(roomId, room);
+  rooms.set(roomName, roomId); // Map name to ID for easy lookup
   connections.set(connectionId, { ws, roomId, color: 'red' });
   
   ws.send(JSON.stringify({
@@ -96,10 +108,22 @@ async function createRoom(ws, roomName, connectionId) {
   }));
 }
 
-async function joinRoom(ws, roomId, connectionId) {
-  const room = rooms.get(roomId);
+async function joinRoom(ws, roomIdentifier, connectionId) {
+  // Allow joining by either room ID or room name
+  let room = rooms.get(roomIdentifier);
+  let roomId = roomIdentifier;
   
-  if (!room) {
+  // If not found by ID, try to find by name
+  if (!room || typeof room === 'string') {
+    // roomIdentifier might be a name that maps to an ID
+    const mappedId = rooms.get(roomIdentifier);
+    if (mappedId && typeof mappedId === 'string') {
+      roomId = mappedId;
+      room = rooms.get(roomId);
+    }
+  }
+  
+  if (!room || typeof room === 'string') {
     ws.send(JSON.stringify({
       type: 'error',
       message: 'Room not found'
@@ -136,7 +160,7 @@ async function joinRoom(ws, roomId, connectionId) {
 
 async function leaveRoom(ws, roomId, connectionId) {
   const room = rooms.get(roomId);
-  if (!room) return;
+  if (!room || typeof room === 'string') return;
   
   if (room.players.red === connectionId) {
     room.players.red = null;
@@ -158,6 +182,7 @@ async function leaveRoom(ws, roomId, connectionId) {
   
   if (!room.players.red && !room.players.black) {
     rooms.delete(roomId);
+    rooms.delete(room.name); // Remove name mapping
   }
   
   connections.delete(connectionId);
