@@ -652,7 +652,7 @@ class ChineseChess {
         
         if (!roomName) {
             console.error('❌ Room name is empty');
-            this.showMessage('Please enter a room name');
+            this.showMessage('❌ Please enter a room name');
             return;
         }
         
@@ -662,10 +662,12 @@ class ChineseChess {
                 roomName: roomName
             });
             console.log('✅ Sending message:', message);
+            this.showMessage('⏳ Creating room: ' + roomName + '...');
             this.socket.send(message);
         } else {
             console.error('❌ WebSocket not connected');
-            this.showMessage('Please wait for connection...');
+            const status = this.socket ? `State: ${this.socket.readyState}` : 'Not initialized';
+            this.showMessage('❌ Not connected! Please wait for green "Connected" status. (' + status + ')');
         }
     }
 
@@ -677,7 +679,7 @@ class ChineseChess {
         
         if (!roomId) {
             console.error('❌ Room ID is empty');
-            this.showMessage('Please enter a room ID');
+            this.showMessage('❌ Please enter a room ID');
             return;
         }
         
@@ -691,13 +693,15 @@ class ChineseChess {
                 roomId: roomId
             });
             console.log('✅ Sending message:', message);
+            this.showMessage('⏳ Joining room: ' + roomId + '...');
             this.socket.send(message);
             console.log('✅ Message sent successfully');
         } else {
             console.error('❌ WebSocket not connected');
             console.error('Socket:', this.socket);
             console.error('State:', this.socket?.readyState);
-            this.showMessage('Please wait for connection...');
+            const status = this.socket ? `State: ${this.socket.readyState}` : 'Not initialized';
+            this.showMessage('❌ Not connected! Please wait for green "Connected" status. (' + status + ')');
         }
     }
 
