@@ -67,6 +67,14 @@ async function handleMessage(ws, data) {
     case 'move':
       await broadcastMove(ws, data, connectionId);
       break;
+    case 'ping':
+      // Respond to keepalive ping
+      ws.send(JSON.stringify({ type: 'pong' }));
+      break;
+    case 'rejoin':
+      // Handle reconnection to existing room
+      await handleRejoin(ws, data, connectionId);
+      break;
     default:
       ws.send(JSON.stringify({ type: 'error', message: 'Unknown message type' }));
   }
@@ -228,4 +236,40 @@ function getConnectionId(ws) {
 
 function generateRoomId() {
   return Math.random().toString(36).substr(2, 8).toUpperCase();
+}
+
+async function handleRejoin(ws, data, connectionId) {
+  const room = rooms.get(data.roomId);
+  
+  if (!room || typeof room === 'string') {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Room not found'
+    }));
+    return;
+  }
+  
+  // Reconnect the player to their existing room
+  if (data.color === 'red' && !room.players.red) {
+    room.players.red = connectionId;
+    connections.set(connectionId, { ws, roomId: data.roomId, color: 'red' });
+    ws.send(JSON.stringify({
+      type: 'rejoined',
+      roomId: data.roomId,
+      color: 'red'
+    }));
+  } else if (data.color === 'black' && !room.players.black) {
+    room.players.black = connectionId;
+    connections.set(connectionId, { ws, roomId: data.roomId, color: 'black' });
+    ws.send(JSON.stringify({
+      type: 'rejoined',
+      roomId: data.roomId,
+      color: 'black'
+    }));
+  } else {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Cannot rejoin - position occupied'
+    }));
+  }
 }

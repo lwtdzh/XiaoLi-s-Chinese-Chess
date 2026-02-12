@@ -12,6 +12,10 @@ class ChineseChess {
         this.socket = null;
         this.opponentName = 'Waiting...';
         this.myName = 'You';
+        this.keepaliveInterval = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+        this.reconnectDelay = 3000; // 3 seconds
         
         this.initUI();
         this.connectWebSocket();
@@ -493,6 +497,17 @@ class ChineseChess {
             
             this.socket.onopen = () => {
                 this.updateConnectionStatus(true);
+                this.reconnectAttempts = 0; // Reset reconnect attempts
+                this.startKeepalive();
+                
+                // If we were in a room, rejoin it
+                if (this.roomId) {
+                    this.socket.send(JSON.stringify({
+                        type: 'rejoin',
+                        roomId: this.roomId,
+                        color: this.color
+                    }));
+                }
             };
             
             this.socket.onmessage = (event) => {
@@ -501,8 +516,12 @@ class ChineseChess {
             };
             
             this.socket.onclose = () => {
+                this.stopKeepalive();
                 this.updateConnectionStatus(false);
                 this.showMessage('Disconnected from server');
+                
+                // Attempt to reconnect
+                this.attemptReconnect();
             };
             
             this.socket.onerror = (error) => {
@@ -512,6 +531,38 @@ class ChineseChess {
         } catch (error) {
             console.error('Failed to connect to WebSocket:', error);
             this.updateConnectionStatus(false);
+            this.attemptReconnect();
+        }
+    }
+
+    startKeepalive() {
+        // Send ping every 30 seconds to keep connection alive
+        this.keepaliveInterval = setInterval(() => {
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                this.socket.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
+    }
+
+    stopKeepalive() {
+        if (this.keepaliveInterval) {
+            clearInterval(this.keepaliveInterval);
+            this.keepaliveInterval = null;
+        }
+    }
+
+    attemptReconnect() {
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            const delay = this.reconnectDelay * this.reconnectAttempts;
+            
+            this.showMessage(`Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+            
+            setTimeout(() => {
+                this.connectWebSocket();
+            }, delay);
+        } else {
+            this.showMessage('Connection lost. Please refresh the page.');
         }
     }
 
@@ -545,6 +596,10 @@ class ChineseChess {
                 break;
             case 'error':
                 this.showMessage(data.message);
+                break;
+            case 'pong':
+                // Server responded to ping, connection is alive
+                console.log('Keepalive: Connection alive');
                 break;
         }
     }
@@ -595,11 +650,14 @@ class ChineseChess {
     }
 
     leaveRoom() {
+        this.stopKeepalive();
+        
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             this.socket.send(JSON.stringify({
                 type: 'leaveRoom',
                 roomId: this.roomId
             }));
+            this.socket.close();
         }
         
         this.resetGame();
