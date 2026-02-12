@@ -69,9 +69,35 @@ class ChineseChess {
     }
 
     setupEventListeners() {
-        document.getElementById('createRoomBtn').addEventListener('click', () => this.createRoom());
-        document.getElementById('joinRoomBtn').addEventListener('click', () => this.joinRoom());
-        document.getElementById('leaveRoomBtn').addEventListener('click', () => this.leaveRoom());
+        const createBtn = document.getElementById('createRoomBtn');
+        const joinBtn = document.getElementById('joinRoomBtn');
+        const leaveBtn = document.getElementById('leaveRoomBtn');
+        
+        console.log('=== Setting up event listeners ===');
+        console.log('Create button:', createBtn);
+        console.log('Join button:', joinBtn);
+        console.log('Leave button:', leaveBtn);
+        
+        if (!createBtn) console.error('❌ Create button not found!');
+        if (!joinBtn) console.error('❌ Join button not found!');
+        if (!leaveBtn) console.error('❌ Leave button not found!');
+        
+        createBtn.addEventListener('click', () => {
+            console.log('🔴 Create button clicked');
+            this.createRoom();
+        });
+        
+        joinBtn.addEventListener('click', () => {
+            console.log('🟢 Join button clicked');
+            this.joinRoom();
+        });
+        
+        leaveBtn.addEventListener('click', () => {
+            console.log('🔵 Leave button clicked');
+            this.leaveRoom();
+        });
+        
+        console.log('✅ Event listeners set up successfully');
     }
 
     renderBoard() {
@@ -621,31 +647,57 @@ class ChineseChess {
 
     createRoom() {
         const roomName = document.getElementById('roomName').value.trim();
+        console.log('=== Create Room Debug ===');
+        console.log('Room name:', roomName);
+        
         if (!roomName) {
+            console.error('❌ Room name is empty');
             this.showMessage('Please enter a room name');
             return;
         }
         
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify({
+            const message = JSON.stringify({
                 type: 'createRoom',
                 roomName: roomName
-            }));
+            });
+            console.log('✅ Sending message:', message);
+            this.socket.send(message);
+        } else {
+            console.error('❌ WebSocket not connected');
+            this.showMessage('Please wait for connection...');
         }
     }
 
     joinRoom() {
         const roomId = document.getElementById('joinRoomId').value.trim();
+        console.log('=== Join Room Debug ===');
+        console.log('Room ID entered:', roomId);
+        console.log('Room ID length:', roomId.length);
+        
         if (!roomId) {
+            console.error('❌ Room ID is empty');
             this.showMessage('Please enter a room ID');
             return;
         }
         
+        console.log('WebSocket exists:', !!this.socket);
+        console.log('WebSocket state:', this.socket?.readyState);
+        console.log('WebSocket OPEN constant:', WebSocket.OPEN);
+        
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify({
+            const message = JSON.stringify({
                 type: 'joinRoom',
                 roomId: roomId
-            }));
+            });
+            console.log('✅ Sending message:', message);
+            this.socket.send(message);
+            console.log('✅ Message sent successfully');
+        } else {
+            console.error('❌ WebSocket not connected');
+            console.error('Socket:', this.socket);
+            console.error('State:', this.socket?.readyState);
+            this.showMessage('Please wait for connection...');
         }
     }
 
