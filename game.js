@@ -585,9 +585,10 @@ class ChineseChess {
     }
     
     startOpponentPolling() {
-        // Poll every 2 seconds to check if opponent joined
-        // This is a fallback for when WebSocket notifications are missed due to multi-instance deployment
-        this.opponentPollingInterval = setInterval(() => {
+        // Poll to check if opponent joined
+        // This is the primary mechanism for detecting opponents due to multi-instance serverless deployment
+        // where in-memory WebSocket notifications may not reach the room creator
+        const pollForOpponent = () => {
             if (this.opponentName !== 'Waiting...' || !this.roomId) {
                 this.stopOpponentPolling();
                 return;
@@ -599,7 +600,11 @@ class ChineseChess {
                     roomId: this.roomId
                 }));
             }
-        }, 2000);
+        };
+        
+        // Fire immediately on start, then poll every 1.5 seconds
+        pollForOpponent();
+        this.opponentPollingInterval = setInterval(pollForOpponent, 1500);
     }
     
     stopOpponentPolling() {

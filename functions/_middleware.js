@@ -495,8 +495,7 @@ async function handleRejoin(ws, data, connectionId, db) {
     // Update player status
     await db.prepare(
       'UPDATE players SET connected = 1, last_seen = ? WHERE id = ?'
-      .bind(Date.now(), connectionId)
-    ).run();
+    ).bind(Date.now(), connectionId).run();
     
     ws.send(JSON.stringify({
       type: 'rejoined',
@@ -532,24 +531,36 @@ async function handleCheckOpponent(ws, roomId, connectionId, db) {
       return;
     }
     
-    // Check if there's an opponent (black player for red creator, or red player for black joiner)
-    const opponentColor = room.red_player_id === connectionId ? 'black' : 'red';
-    const opponentId = opponentColor === 'black' ? room.black_player_id : room.red_player_id;
+    // Determine which color the current connection is by checking the stored player ID
+    // Since connectionId changes on reconnect, also check the players table
+    let isRedPlayer = room.red_player_id === connectionId;
+    let isBlackPlayer = room.black_player_id === connectionId;
     
-    if (opponentId) {
-      console.log('[checkOpponent] Opponent found:', opponentId);
-      
-      // Check if opponent is connected
-      const opponentPlayer = await db.prepare(
-        'SELECT * FROM players WHERE id = ?'
-      ).bind(opponentId).first();
-      
-      if (opponentPlayer && opponentPlayer.connected) {
-        ws.send(JSON.stringify({
-          type: 'opponentFound',
-          playerName: opponentColor === 'black' ? 'Player 2' : 'Player 1'
-        }));
+    // If neither matches directly, check via the connection's stored info
+    if (!isRedPlayer && !isBlackPlayer) {
+      const connection = connections.get(connectionId);
+      if (connection && connection.roomId === roomId) {
+        // Fallback: assume creator (red) since they're the ones polling
+        isRedPlayer = true;
       }
+    }
+    
+    if (isRedPlayer && room.black_player_id) {
+      // Red player is polling and black player has joined
+      console.log('[checkOpponent] Opponent (black) found via DB:', room.black_player_id);
+      ws.send(JSON.stringify({
+        type: 'opponentFound',
+        playerName: 'Player 2'
+      }));
+    } else if (isBlackPlayer && room.red_player_id) {
+      // Black player is polling and red player exists
+      console.log('[checkOpponent] Opponent (red) found via DB:', room.red_player_id);
+      ws.send(JSON.stringify({
+        type: 'opponentFound',
+        playerName: 'Player 1'
+      }));
+    } else {
+      console.log('[checkOpponent] No opponent yet');
     }
   } catch (error) {
     console.error('[checkOpponent] Error:', error);
