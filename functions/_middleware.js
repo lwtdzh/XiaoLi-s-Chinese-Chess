@@ -212,12 +212,28 @@ async function createRoom(ws, roomName, connectionId, db) {
     ).bind(roomName).first();
     
     if (existingRoom) {
-      console.log('[createRoom] Room already exists:', existingRoom);
-      ws.send(JSON.stringify({
-        type: 'error',
-        message: 'Room name already exists'
-      }));
-      return;
+      // Check if the existing room is stale (no connected players)
+      const connectedPlayers = await db.prepare(
+        'SELECT COUNT(*) as count FROM players WHERE room_id = ? AND connected = 1'
+      ).bind(existingRoom.id).first();
+      
+      if (!connectedPlayers || connectedPlayers.count === 0) {
+        // Room is stale — clean it up so the name can be reused
+        console.log('[createRoom] Cleaning up stale room:', existingRoom.id);
+        await db.batch([
+          db.prepare('DELETE FROM players WHERE room_id = ?').bind(existingRoom.id),
+          db.prepare('DELETE FROM game_state WHERE room_id = ?').bind(existingRoom.id),
+          db.prepare('DELETE FROM rooms WHERE id = ?').bind(existingRoom.id)
+        ]);
+        console.log('[createRoom] Stale room cleaned up, proceeding with creation');
+      } else {
+        console.log('[createRoom] Room already exists and has active players:', existingRoom);
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Room name already exists'
+        }));
+        return;
+      }
     }
     
     // Create new room
@@ -500,8 +516,44 @@ async function leaveRoom(ws, roomId, connectionId, db) {
     
     // Remove connection
     connections.delete(connectionId);
+    
+    // Check if the room should be cleaned up
+    await cleanupRoomIfEmpty(actualRoomId, db);
   } catch (error) {
     console.error('Error leaving room:', error);
+  }
+}
+
+async function cleanupRoomIfEmpty(roomId, db) {
+  try {
+    if (!roomId || !db) return;
+    
+    const room = await db.prepare(
+      'SELECT * FROM rooms WHERE id = ?'
+    ).bind(roomId).first();
+    
+    if (!room) return;
+    
+    // Check if any players are still connected in this room
+    const connectedPlayers = await db.prepare(
+      'SELECT COUNT(*) as count FROM players WHERE room_id = ? AND connected = 1'
+    ).bind(roomId).first();
+    
+    if (connectedPlayers && connectedPlayers.count > 0) {
+      // At least one player is still connected, don't clean up
+      return;
+    }
+    
+    // No connected players — delete the room and all associated data
+    console.log('[cleanupRoom] Cleaning up empty room:', roomId);
+    await db.batch([
+      db.prepare('DELETE FROM players WHERE room_id = ?').bind(roomId),
+      db.prepare('DELETE FROM game_state WHERE room_id = ?').bind(roomId),
+      db.prepare('DELETE FROM rooms WHERE id = ?').bind(roomId)
+    ]);
+    console.log('[cleanupRoom] Room cleaned up successfully:', roomId);
+  } catch (error) {
+    console.error('[cleanupRoom] Error cleaning up room:', error);
   }
 }
 
