@@ -180,6 +180,9 @@ async function handleMessage(ws, data, connectionId, env) {
     case 'rejoin':
       await handleRejoin(ws, data, connectionId, db);
       break;
+    case 'checkOpponent':
+      await handleCheckOpponent(ws, data.roomId, connectionId, db);
+      break;
     default:
       ws.send(JSON.stringify({ type: 'error', message: 'Unknown message type' }));
   }
@@ -332,7 +335,16 @@ async function joinRoom(ws, roomIdentifier, connectionId, db) {
       }));
     } else {
       console.warn('[joinRoom] Could not find red player connection:', room.red_player_id);
+      console.warn('[joinRoom] This might be due to multiple server instances. Frontend should poll for updates.');
     }
+    
+    // Also try to broadcast to all connections in the room as fallback
+    console.log('[joinRoom] Broadcasting to all connections in room as fallback');
+    broadcastToRoom(room.id, {
+      type: 'playerJoined',
+      playerName: 'Player 2'
+    }, db, connectionId);
+    
   } catch (error) {
     console.error('[joinRoom] Error joining room:', error);
     ws.send(JSON.stringify({
@@ -504,6 +516,43 @@ async function handleDisconnect(connectionId, db) {
   const connection = connections.get(connectionId);
   if (connection) {
     await leaveRoom(null, connection.roomId, connectionId, db);
+  }
+}
+
+async function handleCheckOpponent(ws, roomId, connectionId, db) {
+  try {
+    console.log('[checkOpponent] Checking for opponent:', { roomId, connectionId });
+    
+    const room = await db.prepare(
+      'SELECT * FROM rooms WHERE id = ?'
+    ).bind(roomId).first();
+    
+    if (!room) {
+      console.log('[checkOpponent] Room not found');
+      return;
+    }
+    
+    // Check if there's an opponent (black player for red creator, or red player for black joiner)
+    const opponentColor = room.red_player_id === connectionId ? 'black' : 'red';
+    const opponentId = opponentColor === 'black' ? room.black_player_id : room.red_player_id;
+    
+    if (opponentId) {
+      console.log('[checkOpponent] Opponent found:', opponentId);
+      
+      // Check if opponent is connected
+      const opponentPlayer = await db.prepare(
+        'SELECT * FROM players WHERE id = ?'
+      ).bind(opponentId).first();
+      
+      if (opponentPlayer && opponentPlayer.connected) {
+        ws.send(JSON.stringify({
+          type: 'opponentFound',
+          playerName: opponentColor === 'black' ? 'Player 2' : 'Player 1'
+        }));
+      }
+    }
+  } catch (error) {
+    console.error('[checkOpponent] Error:', error);
   }
 }
 

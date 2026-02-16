@@ -583,6 +583,31 @@ class ChineseChess {
             this.keepaliveInterval = null;
         }
     }
+    
+    startOpponentPolling() {
+        // Poll every 2 seconds to check if opponent joined
+        // This is a fallback for when WebSocket notifications are missed due to multi-instance deployment
+        this.opponentPollingInterval = setInterval(() => {
+            if (this.opponentName !== 'Waiting...' || !this.roomId) {
+                this.stopOpponentPolling();
+                return;
+            }
+            
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                this.socket.send(JSON.stringify({
+                    type: 'checkOpponent',
+                    roomId: this.roomId
+                }));
+            }
+        }, 2000);
+    }
+    
+    stopOpponentPolling() {
+        if (this.opponentPollingInterval) {
+            clearInterval(this.opponentPollingInterval);
+            this.opponentPollingInterval = null;
+        }
+    }
 
     attemptReconnect() {
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -619,6 +644,13 @@ class ChineseChess {
                 this.opponentName = data.playerName || 'Opponent';
                 document.getElementById('opponentName').textContent = this.opponentName;
                 this.showMessage(`${this.opponentName} joined!`);
+                this.stopOpponentPolling();
+                break;
+            case 'opponentFound':
+                this.opponentName = data.playerName || 'Opponent';
+                document.getElementById('opponentName').textContent = this.opponentName;
+                this.showMessage(`${this.opponentName} joined!`);
+                this.stopOpponentPolling();
                 break;
             case 'move':
                 this.applyOpponentMove(data.from, data.to);
@@ -714,6 +746,7 @@ class ChineseChess {
 
     leaveRoom() {
         this.stopKeepalive();
+        this.stopOpponentPolling();
         
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             this.socket.send(JSON.stringify({
@@ -746,6 +779,11 @@ class ChineseChess {
         document.getElementById('game').classList.remove('hidden');
         this.renderBoard();
         this.updateTurnIndicator();
+        
+        // Start polling for opponent if we're the creator (red player)
+        if (this.color === 'red' && this.opponentName === 'Waiting...') {
+            this.startOpponentPolling();
+        }
     }
 
     switchToLobbyScreen() {
