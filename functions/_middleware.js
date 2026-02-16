@@ -45,21 +45,53 @@ async function initializeDatabase(db) {
   if (dbInitialized) return true;
   
   try {
-    // Execute all SQL statements
-    const statements = SCHEMA_SQL
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
+    console.log('[initializeDatabase] Starting database initialization...');
     
-    for (const statement of statements) {
-      await db.exec(statement);
-    }
+    // Create tables one by one using prepare().run() instead of exec()
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS rooms (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL,
+        red_player_id TEXT,
+        black_player_id TEXT,
+        status TEXT DEFAULT 'waiting'
+      )
+    `).run();
+    
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS game_state (
+        room_id TEXT PRIMARY KEY,
+        board TEXT NOT NULL,
+        current_turn TEXT NOT NULL,
+        last_move TEXT,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+      )
+    `).run();
+    
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS players (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        color TEXT NOT NULL,
+        connected INTEGER DEFAULT 1,
+        last_seen INTEGER NOT NULL,
+        FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+      )
+    `).run();
+    
+    // Create indexes
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_rooms_name ON rooms(name)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_players_room_id ON players(room_id)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_game_state_updated ON game_state(updated_at)`).run();
     
     dbInitialized = true;
-    console.log('Database initialized successfully');
+    console.log('[initializeDatabase] Database initialized successfully');
     return true;
   } catch (error) {
-    console.error('Error initializing database:', error);
+    console.error('[initializeDatabase] Error initializing database:', error);
     return false;
   }
 }
