@@ -266,12 +266,15 @@ async function createRoom(ws, roomName, connectionId, db) {
 
 async function joinRoom(ws, roomIdentifier, connectionId, db) {
   try {
+    console.log('[joinRoom] Player joining:', { roomIdentifier, connectionId });
+    
     // Find room by ID or name
     let room = await db.prepare(
       'SELECT * FROM rooms WHERE id = ? OR name = ?'
     ).bind(roomIdentifier, roomIdentifier).first();
     
     if (!room) {
+      console.log('[joinRoom] Room not found');
       ws.send(JSON.stringify({
         type: 'error',
         message: 'Room not found'
@@ -281,6 +284,7 @@ async function joinRoom(ws, roomIdentifier, connectionId, db) {
     
     // Check if room is full
     if (room.black_player_id) {
+      console.log('[joinRoom] Room is full');
       ws.send(JSON.stringify({
         type: 'error',
         message: 'Room is full'
@@ -289,6 +293,7 @@ async function joinRoom(ws, roomIdentifier, connectionId, db) {
     }
     
     const timestamp = Date.now();
+    console.log('[joinRoom] Adding black player to room:', room.id);
     
     // Update room with black player
     await db.batch([
@@ -303,6 +308,7 @@ async function joinRoom(ws, roomIdentifier, connectionId, db) {
     if (connection) {
       connection.roomId = room.id;
       connection.playerId = connectionId;
+      console.log('[joinRoom] Connection updated for black player');
     }
     
     ws.send(JSON.stringify({
@@ -311,17 +317,24 @@ async function joinRoom(ws, roomIdentifier, connectionId, db) {
       color: 'black',
       opponentName: room.name
     }));
+    console.log('[joinRoom] Black player joined successfully');
     
-    // Notify red player
-    const redConnection = findConnectionByPlayerId(room.red_player_id);
+    // Notify red player - look for connection by connectionId (not playerId)
+    console.log('[joinRoom] Notifying red player:', room.red_player_id);
+    const redConnection = connections.get(room.red_player_id);
+    console.log('[joinRoom] Red connection found:', !!redConnection);
+    
     if (redConnection && redConnection.ws) {
+      console.log('[joinRoom] Sending playerJoined notification to red player');
       redConnection.ws.send(JSON.stringify({
         type: 'playerJoined',
         playerName: 'Player 2'
       }));
+    } else {
+      console.warn('[joinRoom] Could not find red player connection:', room.red_player_id);
     }
   } catch (error) {
-    console.error('Error joining room:', error);
+    console.error('[joinRoom] Error joining room:', error);
     ws.send(JSON.stringify({
       type: 'error',
       message: 'Failed to join room'
