@@ -183,6 +183,9 @@ async function handleMessage(ws, data, connectionId, env) {
     case 'checkOpponent':
       await handleCheckOpponent(ws, data.roomId, connectionId, db);
       break;
+    case 'checkMoves':
+      await handleCheckMoves(ws, data, connectionId, db);
+      break;
     default:
       ws.send(JSON.stringify({ type: 'error', message: 'Unknown message type' }));
   }
@@ -357,19 +360,42 @@ async function joinRoom(ws, roomIdentifier, connectionId, db) {
 async function handleMove(ws, data, connectionId, db) {
   try {
     const connection = connections.get(connectionId);
-    if (!connection || !connection.roomId) return;
+    let roomId = connection ? connection.roomId : null;
     
-    const roomId = connection.roomId;
+    // Fallback: use roomId from the message if the in-memory connection doesn't have it
+    // This happens in stateless serverless environments where the move message
+    // may be handled by a different instance than the one that created/joined the room
+    if (!roomId && data.roomId) {
+      roomId = data.roomId;
+      // Re-associate this connection with the room for future messages on this instance
+      if (connection) {
+        connection.roomId = roomId;
+        connection.playerId = connectionId;
+      }
+    }
+    
+    if (!roomId) {
+      console.error('[handleMove] No roomId available:', connectionId);
+      ws.send(JSON.stringify({
+        type: 'moveRejected',
+        from: data.from,
+        to: data.to,
+        message: 'Not in a room'
+      }));
+      return;
+    }
     const timestamp = Date.now();
     
-    // Get current game state
+    // Get current game state and room info
     const gameState = await db.prepare(
       'SELECT board, current_turn FROM game_state WHERE room_id = ?'
     ).bind(roomId).first();
     
     if (!gameState) {
       ws.send(JSON.stringify({
-        type: 'error',
+        type: 'moveRejected',
+        from: data.from,
+        to: data.to,
         message: 'Game state not found'
       }));
       return;
@@ -381,7 +407,9 @@ async function handleMove(ws, data, connectionId, db) {
     
     if (!piece || piece.color !== gameState.current_turn) {
       ws.send(JSON.stringify({
-        type: 'error',
+        type: 'moveRejected',
+        from: data.from,
+        to: data.to,
         message: 'Not your turn'
       }));
       return;
@@ -394,13 +422,20 @@ async function handleMove(ws, data, connectionId, db) {
     
     const newTurn = gameState.current_turn === 'red' ? 'black' : 'red';
     
+    // Increment move number for polling detection
+    const moveRecord = JSON.stringify({
+      from: data.from,
+      to: data.to,
+      movedAt: timestamp
+    });
+    
     // Update database
     await db.prepare(
       'UPDATE game_state SET board = ?, current_turn = ?, last_move = ?, updated_at = ? WHERE room_id = ?'
     ).bind(
       JSON.stringify(board),
       newTurn,
-      JSON.stringify(data),
+      moveRecord,
       timestamp,
       roomId
     ).run();
@@ -410,28 +445,25 @@ async function handleMove(ws, data, connectionId, db) {
       'UPDATE players SET last_seen = ? WHERE id = ?'
     ).bind(timestamp, connectionId).run();
     
-    // Find opponent and broadcast
-    const opponentConnection = findOpponentConnection(roomId, gameState.current_turn);
-    if (opponentConnection && opponentConnection.ws) {
-      opponentConnection.ws.send(JSON.stringify({
-        type: 'move',
-        from: data.from,
-        to: data.to
-      }));
-    }
-    
+    // Confirm move to the sender
     ws.send(JSON.stringify({
       type: 'moveConfirmed',
       from: data.from,
       to: data.to
     }));
     
+    // Broadcast move to all other connections in the same room (same instance)
+    broadcastToRoom(roomId, {
+      type: 'move',
+      from: data.from,
+      to: data.to
+    }, db, connectionId);
+    
     // Check for checkmate
     if (capturedPiece && capturedPiece.type === 'jiang') {
       await db.prepare('UPDATE rooms SET status = ? WHERE id = ?')
         .bind('finished', roomId).run();
       
-      // Broadcast game over
       broadcastToRoom(roomId, {
         type: 'gameOver',
         winner: gameState.current_turn
@@ -440,7 +472,9 @@ async function handleMove(ws, data, connectionId, db) {
   } catch (error) {
     console.error('Error handling move:', error);
     ws.send(JSON.stringify({
-      type: 'error',
+      type: 'moveRejected',
+      from: data.from,
+      to: data.to,
       message: 'Failed to process move'
     }));
   }
@@ -567,23 +601,40 @@ async function handleCheckOpponent(ws, roomId, connectionId, db) {
   }
 }
 
+async function handleCheckMoves(ws, data, connectionId, db) {
+  try {
+    const roomId = data.roomId;
+    const lastKnownUpdate = data.lastKnownUpdate || 0;
+    
+    if (!roomId) return;
+    
+    const gameState = await db.prepare(
+      'SELECT current_turn, last_move, updated_at FROM game_state WHERE room_id = ?'
+    ).bind(roomId).first();
+    
+    if (!gameState) return;
+    
+    // If the game state has been updated since the client last checked, send the latest move
+    if (gameState.updated_at > lastKnownUpdate && gameState.last_move) {
+      const lastMove = JSON.parse(gameState.last_move);
+      ws.send(JSON.stringify({
+        type: 'moveUpdate',
+        from: lastMove.from,
+        to: lastMove.to,
+        currentTurn: gameState.current_turn,
+        updatedAt: gameState.updated_at
+      }));
+    }
+  } catch (error) {
+    console.error('[handleCheckMoves] Error:', error);
+  }
+}
+
 // Helper functions
 function findConnectionByPlayerId(playerId) {
   for (const [id, conn] of connections.entries()) {
     if (conn.playerId === playerId) {
       return conn;
-    }
-  }
-  return null;
-}
-
-function findOpponentConnection(roomId, currentTurn) {
-  for (const [id, conn] of connections.entries()) {
-    if (conn.roomId === roomId) {
-      const playerColor = conn.playerId === conn.roomId ? 'red' : 'black';
-      if (playerColor !== currentTurn) {
-        return conn;
-      }
     }
   }
   return null;

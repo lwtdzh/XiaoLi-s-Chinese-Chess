@@ -16,6 +16,9 @@ class ChineseChess {
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         this.reconnectDelay = 3000; // 3 seconds
+        this.lastKnownUpdate = 0; // Timestamp of last known game state update from server
+        this.movePollingInterval = null;
+        this.pendingMove = null; // Stores board state before a move for potential rollback
         
         this.initUI();
         this.connectWebSocket();
@@ -241,6 +244,15 @@ class ChineseChess {
     makeMove(fromRow, fromCol, toRow, toCol) {
         const piece = this.board[fromRow][fromCol];
         const capturedPiece = this.board[toRow][toCol];
+
+        // Save state for potential rollback if server rejects the move
+        this.pendingMove = {
+            from: { row: fromRow, col: fromCol },
+            to: { row: toRow, col: toCol },
+            piece: piece,
+            capturedPiece: capturedPiece,
+            previousTurn: this.currentPlayer
+        };
 
         this.board[toRow][toCol] = piece;
         this.board[fromRow][fromCol] = null;
@@ -660,6 +672,21 @@ class ChineseChess {
             case 'move':
                 this.applyOpponentMove(data.from, data.to);
                 break;
+            case 'moveConfirmed':
+                // Server accepted our move, clear pending state
+                this.pendingMove = null;
+                console.log('Move confirmed by server');
+                break;
+            case 'moveRejected':
+                // Server rejected our move, rollback
+                console.error('Move rejected:', data.message);
+                this.rollbackMove();
+                this.showMessage('Move rejected: ' + data.message);
+                break;
+            case 'moveUpdate':
+                // Received via polling — opponent made a move on a different server instance
+                this.handleMoveUpdate(data);
+                break;
             case 'playerLeft':
                 this.showMessage('Opponent left the game');
                 this.gameOver = true;
@@ -668,9 +695,34 @@ class ChineseChess {
                 this.showMessage(data.message);
                 break;
             case 'pong':
-                // Server responded to ping, connection is alive
                 console.log('Keepalive: Connection alive');
                 break;
+        }
+    }
+
+    rollbackMove() {
+        if (!this.pendingMove) return;
+        
+        const { from, to, piece, capturedPiece, previousTurn } = this.pendingMove;
+        this.board[from.row][from.col] = piece;
+        this.board[to.row][to.col] = capturedPiece;
+        this.currentPlayer = previousTurn;
+        this.gameOver = false;
+        this.pendingMove = null;
+        this.renderBoard();
+        this.updateTurnIndicator();
+    }
+
+    handleMoveUpdate(data) {
+        // Only apply if this is a new update we haven't seen
+        if (data.updatedAt <= this.lastKnownUpdate) return;
+        
+        this.lastKnownUpdate = data.updatedAt;
+        
+        // Only apply opponent's move (not our own echoed back)
+        if (data.currentTurn === this.color) {
+            // It's now our turn, meaning the opponent just moved
+            this.applyOpponentMove(data.from, data.to);
         }
     }
 
@@ -752,6 +804,7 @@ class ChineseChess {
     leaveRoom() {
         this.stopKeepalive();
         this.stopOpponentPolling();
+        this.stopMovePolling();
         
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             this.socket.send(JSON.stringify({
@@ -775,8 +828,39 @@ class ChineseChess {
         this.color = null;
         this.roomId = null;
         this.opponentName = 'Waiting...';
+        this.lastKnownUpdate = 0;
+        this.pendingMove = null;
         document.getElementById('opponentName').textContent = this.opponentName;
         this.showMessage('');
+    }
+
+    startMovePolling() {
+        // Poll for moves from the opponent via DB, as a fallback for cross-instance WebSocket delivery
+        const pollForMoves = () => {
+            if (!this.roomId || this.gameOver) {
+                this.stopMovePolling();
+                return;
+            }
+            
+            // Only poll when it's our turn (meaning we're waiting for opponent's move to arrive)
+            // Actually, we should always poll since we might miss the move notification
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                this.socket.send(JSON.stringify({
+                    type: 'checkMoves',
+                    roomId: this.roomId,
+                    lastKnownUpdate: this.lastKnownUpdate
+                }));
+            }
+        };
+        
+        this.movePollingInterval = setInterval(pollForMoves, 2000);
+    }
+    
+    stopMovePolling() {
+        if (this.movePollingInterval) {
+            clearInterval(this.movePollingInterval);
+            this.movePollingInterval = null;
+        }
     }
 
     switchToGameScreen() {
@@ -789,6 +873,9 @@ class ChineseChess {
         if (this.color === 'red' && this.opponentName === 'Waiting...') {
             this.startOpponentPolling();
         }
+        
+        // Start move polling for cross-instance move delivery
+        this.startMovePolling();
     }
 
     switchToLobbyScreen() {
