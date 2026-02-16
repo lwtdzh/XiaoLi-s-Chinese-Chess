@@ -91,6 +91,11 @@ async function handleWebSocket(context) {
     return new Response('Expected websocket', { status: 426 });
   }
 
+  // Initialize database before accepting WebSocket connection
+  if (context.env.DB) {
+    await initializeDatabase(context.env.DB);
+  }
+
   const [client, server] = Object.values(new WebSocketPair());
   server.accept();
   
