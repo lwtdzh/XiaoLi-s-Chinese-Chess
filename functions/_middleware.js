@@ -212,14 +212,34 @@ async function createRoom(ws, roomName, connectionId, db) {
     ).bind(roomName).first();
     
     if (existingRoom) {
-      // Check if the existing room is stale (no connected players)
+      // Check if the existing room is stale:
+      // 1. No connected players, OR
+      // 2. No players at all (room created but player record missing), OR
+      // 3. All players' last_seen is older than 5 minutes (handles cross-instance disconnect miss)
+      const STALE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+      const now = Date.now();
+      
       const connectedPlayers = await db.prepare(
         'SELECT COUNT(*) as count FROM players WHERE room_id = ? AND connected = 1'
       ).bind(existingRoom.id).first();
       
-      if (!connectedPlayers || connectedPlayers.count === 0) {
+      const recentPlayers = await db.prepare(
+        'SELECT COUNT(*) as count FROM players WHERE room_id = ? AND last_seen > ?'
+      ).bind(existingRoom.id, now - STALE_TIMEOUT_MS).first();
+      
+      const totalPlayers = await db.prepare(
+        'SELECT COUNT(*) as count FROM players WHERE room_id = ?'
+      ).bind(existingRoom.id).first();
+      
+      const noConnectedPlayers = !connectedPlayers || connectedPlayers.count === 0;
+      const noRecentActivity = !recentPlayers || recentPlayers.count === 0;
+      const noPlayersAtAll = !totalPlayers || totalPlayers.count === 0;
+      
+      if (noPlayersAtAll || noConnectedPlayers || noRecentActivity) {
         // Room is stale — clean it up so the name can be reused
-        console.log('[createRoom] Cleaning up stale room:', existingRoom.id);
+        console.log('[createRoom] Cleaning up stale room:', existingRoom.id, {
+          noPlayersAtAll, noConnectedPlayers, noRecentActivity
+        });
         await db.batch([
           db.prepare('DELETE FROM players WHERE room_id = ?').bind(existingRoom.id),
           db.prepare('DELETE FROM game_state WHERE room_id = ?').bind(existingRoom.id),
