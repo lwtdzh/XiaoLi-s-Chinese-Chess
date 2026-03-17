@@ -13,28 +13,53 @@ A multiplayer Chinese Chess game that runs on Cloudflare Pages with WebSocket su
   - 車
   - 炮/砲
   - 卒/兵
+- **Game Rule Validation**: Automatic check detection, checkmate detection, and flying general rule
 - **Multiplayer Support**: Play with friends in real-time using WebSockets
 - **Room System**: Create or join game rooms
+- **Reconnection Support**: Automatic reconnection with game state recovery
 - **Responsive Design**: Works on both desktop and mobile devices
-- **Cloudflare Pages Hosting**: Fast, global deployment
+- **Cloudflare Pages Hosting**: Fast, global deployment with D1 database
 
 ## Quick Start
 
-### Option 1: Local Development
+### Option 1: Local Development (Recommended)
 
-1. Install dependencies:
+1. **Run the setup script** (automated):
 ```bash
-npm install
+chmod +x scripts/local-dev-setup.sh
+./scripts/local-dev-setup.sh
 ```
 
-2. Start the development server:
+Or manually:
+
 ```bash
+# Install dependencies
+npm install
+
+# Initialize local D1 database
+npm run db:init
+
+# Build frontend
+npm run build
+
+# Start local development server
+npm run dev:local
+```
+
+2. Open your browser to `http://localhost:8788`
+
+### Option 2: Frontend Only Development
+
+For frontend-only development without backend:
+
+```bash
+npm install
 npm run dev
 ```
 
-3. Open your browser to `http://localhost:5173`
+Open your browser to `http://localhost:5173`
 
-### Option 2: Deploy to Cloudflare
+### Option 3: Deploy to Cloudflare
 
 1. Install Wrangler CLI:
 ```bash
@@ -46,9 +71,21 @@ npm install -g wrangler
 wrangler login
 ```
 
-3. Deploy:
+3. Create D1 Database:
 ```bash
-wrangler pages deploy public
+wrangler d1 create chinachess
+```
+
+4. Update `wrangler.toml` with your database ID
+
+5. Initialize database:
+```bash
+npm run db:init:remote
+```
+
+6. Deploy:
+```bash
+npm run deploy
 ```
 
 ## How to Play
@@ -83,12 +120,59 @@ wrangler pages deploy public
 - **Blocking**: 馬's movement can be blocked, 象/相's movement can be blocked
 - **River Crossing**: 象/相 cannot cross the river, 卒/兵 gain sideways movement after crossing
 
+## Testing
+
+### Run All Tests
+```bash
+npm test
+```
+
+### Run Tests in Watch Mode
+```bash
+npm run test:watch
+```
+
+### Run Tests with Coverage
+```bash
+npm run test:coverage
+```
+
+### Test Structure
+```
+tests/
+├── setup.js                    # Test environment setup and mocks
+├── unit/
+│   ├── chess-rules.test.js     # Chess rules validation tests
+│   ├── board.test.js           # Board logic tests
+│   └── game-state.test.js      # Game state management tests
+└── integration/
+    ├── websocket.test.js       # WebSocket communication tests
+    └── database.test.js        # Database operation tests
+```
+
 ## Technical Details
 
 - **Frontend**: HTML5, CSS3, Vanilla JavaScript
-- **Backend**: Cloudflare Workers with WebSocket support
+- **Backend**: Cloudflare Pages Functions with WebSocket support
+- **Database**: Cloudflare D1 (SQLite)
 - **Hosting**: Cloudflare Pages
 - **Build Tool**: Vite
+- **Testing**: Vitest
+
+## Project Structure
+
+```
+├── functions/
+│   └── _middleware.js          # Backend logic (WebSocket, game rules, database)
+├── public/                     # Static files (built from index.html, style.css)
+├── game.js                     # Frontend game logic
+├── index.html                  # Main HTML file
+├── style.css                   # Styles
+├── schema.sql                  # Database schema
+├── vitest.config.js            # Test configuration
+├── wrangler.toml               # Cloudflare configuration
+└── tests/                      # Test files
+```
 
 ## Browser Support
 

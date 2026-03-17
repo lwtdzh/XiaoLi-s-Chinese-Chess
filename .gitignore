@@ -4,3 +4,12 @@ node_modules/
 dist/
 *.log
 .env
+
+# Build outputs
+public/
+
+# Cloudflare Wrangler
+.wrangler/
+
+# IDE and tool directories
+.aone_copilot/

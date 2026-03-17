@@ -1,6 +1,61 @@
 # Troubleshooting Guide
 
-## Common Issues and Solutions
+## Quick Links
+
+- [Local Development Issues](#local-development-issues)
+- [Database Issues](#database-issues)
+- [WebSocket Issues](#websocket-issues)
+- [Game Logic Issues](#game-logic-issues)
+- [Deployment Issues](#deployment-issues)
+
+---
+
+## Local Development Issues
+
+### Issue: "Cannot find module" or dependency errors
+
+**Solution**: Reinstall dependencies
+```bash
+rm -rf node_modules package-lock.json
+npm install
+```
+
+### Issue: Local D1 database not working
+
+**Solution**: Reinitialize the local database
+```bash
+# Remove old local database
+rm -rf .wrangler/state
+
+# Reinitialize
+npm run db:init
+```
+
+### Issue: Port 8788 already in use
+
+**Solution**: Kill the process using the port or change port
+```bash
+# Find process using port
+lsof -i :8788
+
+# Kill process (replace PID with actual process ID)
+kill -9 PID
+
+# Or use a different port
+npx wrangler pages dev public --d1=DB=chinachess --local --port 8789
+```
+
+### Issue: Tests failing with "Cannot find module"
+
+**Solution**: Ensure all dependencies are installed
+```bash
+npm install
+npm test
+```
+
+---
+
+## Database Issues
 
 ### Issue: "Failed to create room"
 

@@ -1,10 +1,14 @@
 
+# ============================================
+# 中国象棋 Cloudflare Pages 配置
+# XiaoLi Chinese Chess Configuration
+# ============================================
+
 name = "xiaoli-chinese-chess"
-main = "server.js"
 compatibility_date = "2024-01-01"
 
-[site]
-bucket = "./public"
+# Pages 配置
+pages_build_output_dir = "public"
 
 # D1 Database binding
 [[d1_databases]]
@@ -12,6 +16,17 @@ binding = "DB"
 database_name = "chinachess"
 database_id = "d9f76ae4-9ad7-4ab9-a1a5-973c60a0e251"
 
-[[routes]]
-pattern = "/*"
-custom_domain = true
+# ============================================
+# 本地开发配置 (Local Development)
+# ============================================
+# 使用命令启动本地开发服务器:
+# npm run dev:local
+# 
+# 本地 D1 数据库初始化:
+# npm run db:init
+# ============================================
+
+# 生产环境路由配置
+# [[routes]]
+# pattern = "/*"
+# custom_domain = true

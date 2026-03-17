@@ -3,12 +3,25 @@
   "name": "xiaoli-chinese-chess",
   "version": "1.0.0",
   "description": "Chinese Chess game with multiplayer support on Cloudflare Pages",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "dev:local": "wrangler pages dev public --d1=DB=chinachess --local --port 8788",
+    "db:init": "wrangler d1 execute chinachess --file=./schema.sql --local",
+    "db:init:remote": "wrangler d1 execute chinachess --file=./schema.sql --remote",
+    "deploy": "npm run build && wrangler pages deploy public"
   },
   "devDependencies": {
-    "vite": "^5.0.0"
+    "vite": "^5.0.0",
+    "vitest": "^1.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "@cloudflare/workers-types": "^4.20231218.0",
+    "wrangler": "^3.0.0",
+    "jsdom": "^23.0.0"
   }
 }
