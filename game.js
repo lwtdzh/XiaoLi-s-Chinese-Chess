@@ -737,7 +737,7 @@ class ChineseChess {
     // WebSocket Connection
     // ========================================
     
-    connectWebSocket() {
+    connectWebSocket(roomId = null) {
         if (this.connectionState === 'connecting' || this.connectionState === 'connected') {
             return;
         }
@@ -746,7 +746,12 @@ class ChineseChess {
         this.updateConnectionStatus('connecting');
         
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        let wsUrl = `${protocol}//${window.location.host}/ws`;
+        
+        // Include roomId in URL if we have one (for reconnection or joining)
+        if (roomId || this.roomId) {
+            wsUrl += `?roomId=${roomId || this.roomId}`;
+        }
         
         console.log('Connecting to WebSocket:', wsUrl);
         
@@ -761,13 +766,13 @@ class ChineseChess {
                 this.updateConnectionStatus('connected');
                 this.startHeartbeat();
                 
-                // Rejoin room if we were in one
-                if (this.roomId && this.color) {
-                    console.log('Rejoining room:', this.roomId);
+                // Send join message with room name and player name
+                if (this.roomId) {
                     this.socket.send(JSON.stringify({
-                        type: 'rejoin',
+                        type: 'join',
                         roomId: this.roomId,
-                        color: this.color
+                        roomName: this.roomName || this.roomId,
+                        playerName: this.myName || 'Player'
                     }));
                 }
             };
@@ -889,18 +894,44 @@ class ChineseChess {
         console.log('Received message:', data.type);
         
         switch (data.type) {
+            // New DO message types
+            case 'session':
+                this.handleSession(data);
+                break;
+            case 'joined':
+                this.handleJoined(data);
+                break;
+            case 'player_joined':
+                this.handlePlayerJoined(data);
+                break;
+            case 'move':
+                this.handleMove(data);
+                break;
+            case 'game_restarted':
+                this.handleGameRestarted(data);
+                break;
+            case 'game_ended':
+                this.handleGameEnded(data);
+                break;
+            case 'player_left':
+                this.handlePlayerLeft(data);
+                break;
+            case 'player_ready':
+                this.handlePlayerReady(data);
+                break;
+            case 'chat':
+                this.handleChat(data);
+                break;
+            
+            // Legacy message types (for backwards compatibility)
             case 'roomCreated':
                 this.handleRoomCreated(data);
                 break;
             case 'roomJoined':
                 this.handleRoomJoined(data);
                 break;
-            case 'playerJoined':
             case 'opponentFound':
                 this.handlePlayerJoined(data);
-                break;
-            case 'move':
-                this.handleOpponentMove(data);
                 break;
             case 'moveConfirmed':
                 this.handleMoveConfirmed(data);
@@ -914,7 +945,6 @@ class ChineseChess {
             case 'gameOver':
                 this.handleGameOver(data);
                 break;
-            case 'playerLeft':
             case 'opponentDisconnected':
                 this.handlePlayerLeft(data);
                 break;
@@ -934,6 +964,156 @@ class ChineseChess {
             default:
                 console.log('Unknown message type:', data.type);
         }
+    }
+    
+    // New DO handlers
+    handleSession(data) {
+        this.sessionId = data.sessionId;
+        console.log('✅ Session established:', this.sessionId);
+    }
+    
+    handleJoined(data) {
+        this.roomId = data.roomId;
+        this.roomName = data.roomName;
+        this.color = data.color;
+        this.myName = data.playerName || 'You';
+        
+        if (data.gameState) {
+            this.loadGameState(data.gameState);
+        }
+        
+        this.showMessage(`✅ Joined room "${data.roomName}" as ${data.color === 'red' ? 'Red' : 'Black'} player`);
+        this.switchToGameScreen();
+    }
+    
+    handleMove(data) {
+        // Check if this is our own move being echoed back
+        if (data.moved_by === this.color) {
+            // This is our own move, already applied optimistically, just confirm it
+            console.log('✅ Our move confirmed by server');
+            return;
+        }
+        
+        // Opponent made a move
+        if (data.current_turn === this.color) {
+            // It's now my turn, the move was made by opponent
+            this.applyOpponentMove(data);
+        }
+    }
+    
+    handleGameRestarted(data) {
+        if (data.gameState) {
+            this.loadGameState(data.gameState);
+        }
+        this.showMessage('🔄 Game restarted!');
+        this.renderBoard();
+        this.updateTurnIndicator();
+    }
+    
+    handleGameEnded(data) {
+        this.gameOver = true;
+        const winner = data.winner === this.color ? 'You' : 'Opponent';
+        
+        if (data.reason === 'resign') {
+            this.showMessage(`🏆 ${winner} won! Opponent resigned.`);
+        } else {
+            this.showMessage(`🏆 Game Over! ${winner} won!`);
+        }
+        
+        this.renderBoard();
+        this.updateTurnIndicator();
+    }
+    
+    handlePlayerReady(data) {
+        console.log('Player ready:', data.color);
+    }
+    
+    handleChat(data) {
+        console.log(`[Chat] ${data.playerName}: ${data.message}`);
+        // Could display in a chat UI if implemented
+    }
+    
+    loadGameState(state) {
+        if (!state) return;
+        
+        // Convert board format from DO (letters) to frontend format
+        if (state.board && Array.isArray(state.board)) {
+            this.board = this.boardFromServerFormat(state.board);
+        }
+        this.currentPlayer = state.current_turn || 'red';
+        this.moveCount = state.move_count || 0;
+        this.gameOver = state.status === 'ended';
+        
+        // Check for check state
+        if (this.currentPlayer === this.color) {
+            this.isInCheck = this.isKingInCheck(this.board, this.color);
+        }
+    }
+    
+    boardFromServerFormat(serverBoard) {
+        const pieceMap = {
+            // Red pieces (uppercase in server format)
+            'R': { type: 'ju', color: 'red', name: '車' },
+            'N': { type: 'ma', color: 'red', name: '馬' },
+            'B': { type: 'xiang', color: 'red', name: '相' },
+            'A': { type: 'shi', color: 'red', name: '仕' },
+            'K': { type: 'jiang', color: 'red', name: '帥' },
+            'C': { type: 'pao', color: 'red', name: '炮' },
+            'P': { type: 'zu', color: 'red', name: '兵' },
+            // Black pieces (lowercase in server format)
+            'r': { type: 'ju', color: 'black', name: '車' },
+            'n': { type: 'ma', color: 'black', name: '馬' },
+            'b': { type: 'xiang', color: 'black', name: '象' },
+            'a': { type: 'shi', color: 'black', name: '士' },
+            'k': { type: 'jiang', color: 'black', name: '將' },
+            'c': { type: 'pao', color: 'black', name: '砲' },
+            'p': { type: 'zu', color: 'black', name: '卒' },
+            '.': null
+        };
+        
+        const board = Array(10).fill(null).map(() => Array(9).fill(null));
+        
+        for (let row = 0; row < 10; row++) {
+            for (let col = 0; col < 9; col++) {
+                const code = serverBoard[row]?.[col];
+                if (code && code !== '.') {
+                    const piece = pieceMap[code];
+                    if (piece) {
+                        board[row][col] = { ...piece };
+                    }
+                }
+            }
+        }
+        
+        return board;
+    }
+    
+    applyOpponentMove(data) {
+        if (data.from && data.to) {
+            const piece = this.board[data.from.row][data.from.col];
+            if (piece) {
+                this.board[data.to.row][data.to.col] = piece;
+                this.board[data.from.row][data.from.col] = null;
+            }
+        }
+        
+        this.currentPlayer = data.current_turn || (this.color === 'red' ? 'red' : 'black');
+        this.moveCount = data.move_count || this.moveCount + 1;
+        
+        // Check game status
+        if (data.game_status === 'ended') {
+            this.gameOver = true;
+            this.showMessage(data.winner === this.color ? '🏆 You won!' : '🏆 You lost!');
+        } else {
+            // Check if we're in check
+            this.isInCheck = this.isKingInCheck(this.board, this.color);
+            if (this.isInCheck) {
+                this.showMessage('⚠️ You are in check!');
+            }
+        }
+        
+        this.renderBoard();
+        this.updateTurnIndicator();
     }
     
     handleRoomCreated(data) {
@@ -959,12 +1139,6 @@ class ChineseChess {
         this.stopOpponentPolling();
     }
     
-    handleOpponentMove(data) {
-        if (data.from && data.to) {
-            this.applyOpponentMove(data.from, data.to, data);
-        }
-    }
-    
     handleMoveConfirmed(data) {
         this.pendingMove = null;
         console.log('✅ Move confirmed by server');
@@ -984,8 +1158,8 @@ class ChineseChess {
         
         this.lastKnownUpdate = data.updatedAt;
         
-        if (data.from && data.to && data.currentTurn === this.color) {
-            this.applyOpponentMove(data.from, data.to, data);
+        if (data.from && data.to && data.current_turn === this.color) {
+            this.applyOpponentMove(data);
         }
     }
     
@@ -1037,36 +1211,6 @@ class ChineseChess {
         console.error('Server error:', data);
         this.showMessage(`❌ Error: ${data.message || 'Unknown error'}`);
     }
-    
-    applyOpponentMove(from, to, data) {
-        const piece = this.board[from.row][from.col];
-        if (!piece) return;
-        
-        this.board[to.row][to.col] = piece;
-        this.board[from.row][from.col] = null;
-        
-        // Update turn - use server's authoritative turn info, with fallback
-        this.currentPlayer = data.currentTurn || (piece.color === 'red' ? 'black' : 'red');
-        this.moveCount++;
-        
-        // Update check state
-        if (data && data.isInCheck !== undefined) {
-            this.isInCheck = data.isInCheck;
-        } else {
-            this.isInCheck = this.isKingInCheck(this.board, this.currentPlayer);
-        }
-        
-        // Check for game over
-        if (data && data.isCheckmate) {
-            this.gameOver = true;
-            this.showMessage('🏆 Checkmate! You lose!');
-        } else if (this.isInCheck) {
-            this.showMessage('⚠️ You are in check!');
-        }
-        
-        this.renderBoard();
-        this.updateTurnIndicator();
-    }
 
     // ========================================
     // Room Actions
@@ -1083,16 +1227,21 @@ class ChineseChess {
             return;
         }
         
-        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-            this.showMessage('❌ Not connected! Please wait...');
-            this.attemptReconnect();
-            return;
+        // Close existing connection and create new one
+        if (this.socket) {
+            this.stopHeartbeat();
+            this.socket.close();
         }
         
-        this.socket.send(JSON.stringify({
-            type: 'createRoom',
-            roomName: roomName
-        }));
+        this.roomName = roomName;
+        this.pendingRoomAction = 'create';
+        
+        // Generate a unique room ID
+        this.roomId = 'room-' + crypto.randomUUID();
+        
+        // Connect WebSocket with room ID
+        this.connectionState = 'disconnected';
+        this.connectWebSocket(this.roomId);
         
         this.showMessage('⏳ Creating room...');
     }
@@ -1108,18 +1257,36 @@ class ChineseChess {
             return;
         }
         
-        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-            this.showMessage('❌ Not connected! Please wait...');
-            this.attemptReconnect();
-            return;
+        // Close existing connection and create new one
+        if (this.socket) {
+            this.stopHeartbeat();
+            this.socket.close();
         }
         
-        this.socket.send(JSON.stringify({
-            type: 'joinRoom',
-            roomId: roomId
-        }));
+        this.roomId = roomId;
+        this.pendingRoomAction = 'join';
         
-        this.showMessage('⏳ Joining room...');
+        // Verify room exists via REST API first
+        fetch(`/api/room/lookup?name=${encodeURIComponent(roomId)}`)
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                }
+                throw new Error('Room not found');
+            })
+            .then(data => {
+                // Room exists, connect to it
+                this.connectionState = 'disconnected';
+                this.connectWebSocket(data.id);
+                this.showMessage('⏳ Joining room...');
+            })
+            .catch(error => {
+                // If not found by name, try connecting directly with the input as ID
+                console.log('Room not found by name, trying as ID:', roomId);
+                this.connectionState = 'disconnected';
+                this.connectWebSocket(roomId);
+                this.showMessage('⏳ Joining room...');
+            });
     }
 
     leaveRoom() {
@@ -1149,6 +1316,7 @@ class ChineseChess {
         this.gameOver = false;
         this.color = null;
         this.roomId = null;
+        this.roomName = null;
         this.opponentName = 'Waiting...';
         this.lastKnownUpdate = 0;
         this.pendingMove = null;

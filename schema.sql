@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS game_state (
     updated_at INTEGER NOT NULL,
     status TEXT DEFAULT 'playing',
     move_count INTEGER DEFAULT 0,
+    winner TEXT, -- 'red' or 'black' when game ends
     FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
 
