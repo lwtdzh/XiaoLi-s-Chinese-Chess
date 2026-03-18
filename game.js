@@ -30,7 +30,7 @@ class ChineseChess {
         
         // Heartbeat
         this.heartbeatInterval = null;
-        this.heartbeatTimeout = 30000;
+        this.heartbeatTimeout = 20000;
         this.lastHeartbeat = 0;
         this.missedHeartbeats = 0;
         this.maxMissedHeartbeats = 3;
@@ -777,7 +777,8 @@ class ChineseChess {
                     const data = JSON.parse(event.data);
                     this.handleMessage(data);
                 } catch (error) {
-                    console.error('Failed to parse message:', error);
+                    console.error('Error processing WebSocket message:', error);
+                    // Don't let individual message failures kill the connection
                 }
             };
             
@@ -970,9 +971,10 @@ class ChineseChess {
     }
     
     handleMoveRejected(data) {
-        console.error('❌ Move rejected:', data.message);
+        const msg = data.error || data.message || 'Invalid move';
+        console.error('❌ Move rejected:', msg);
         this.rollbackMove();
-        this.showMessage(`❌ Move rejected: ${data.message || 'Invalid move'}`);
+        this.showMessage(`❌ Move rejected: ${msg}`);
     }
     
     handleMoveUpdate(data) {
@@ -1043,8 +1045,8 @@ class ChineseChess {
         this.board[to.row][to.col] = piece;
         this.board[from.row][from.col] = null;
         
-        // Update turn
-        this.currentPlayer = this.color;
+        // Update turn - use server's authoritative turn info, with fallback
+        this.currentPlayer = data.currentTurn || (piece.color === 'red' ? 'black' : 'red');
         this.moveCount++;
         
         // Update check state
@@ -1175,10 +1177,15 @@ class ChineseChess {
             }
             
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                this.socket.send(JSON.stringify({
-                    type: 'checkOpponent',
-                    roomId: this.roomId
-                }));
+                try {
+                    this.socket.send(JSON.stringify({
+                        type: 'checkOpponent',
+                        roomId: this.roomId
+                    }));
+                } catch (error) {
+                    console.error('Failed to send polling message:', error);
+                    // Optionally trigger reconnection
+                }
             }
         };
         
@@ -1203,11 +1210,16 @@ class ChineseChess {
             }
             
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                this.socket.send(JSON.stringify({
-                    type: 'checkMoves',
-                    roomId: this.roomId,
-                    lastKnownUpdate: this.lastKnownUpdate
-                }));
+                try {
+                    this.socket.send(JSON.stringify({
+                        type: 'checkMoves',
+                        roomId: this.roomId,
+                        lastKnownUpdate: this.lastKnownUpdate
+                    }));
+                } catch (error) {
+                    console.error('Failed to send polling message:', error);
+                    // Optionally trigger reconnection
+                }
             }
         };
         

@@ -7,7 +7,7 @@
 // ============================================
 
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-const HEARTBEAT_TIMEOUT = 60000; // 60 seconds
+const HEARTBEAT_TIMEOUT = 90000; // 90 seconds (3 * HEARTBEAT_INTERVAL)
 const STALE_ROOM_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 const ERROR_CODES = {
@@ -66,6 +66,7 @@ async function initializeDatabase(db) {
         current_turn TEXT NOT NULL,
         last_move TEXT,
         move_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'playing',
         updated_at INTEGER NOT NULL,
         FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
       )
@@ -353,6 +354,23 @@ async function joinRoom(ws, roomIdentifier, connectionId, db) {
   try {
     console.log('[Room] Joining room:', { roomIdentifier, connectionId });
     
+    // Validate room identifier
+    if (!roomIdentifier || typeof roomIdentifier !== 'string') {
+      sendError(ws, ERROR_CODES.ROOM_NOT_FOUND, 'Room identifier cannot be empty');
+      return;
+    }
+    
+    roomIdentifier = roomIdentifier.trim();
+    if (roomIdentifier.length === 0) {
+      sendError(ws, ERROR_CODES.ROOM_NOT_FOUND, 'Room identifier cannot be empty');
+      return;
+    }
+    
+    // Limit length to prevent abuse
+    if (roomIdentifier.length > 20) {
+      roomIdentifier = roomIdentifier.substring(0, 20);
+    }
+    
     // Find room by ID or name
     const room = await db.prepare(
       'SELECT * FROM rooms WHERE id = ? OR name = ?'
@@ -473,9 +491,9 @@ async function checkRoomStale(roomId, db) {
     'SELECT COUNT(*) as count FROM players WHERE room_id = ?'
   ).bind(roomId).first();
   
+  // A room is stale if there are no players at all, OR all players are both disconnected AND inactive
   return (!totalPlayers || totalPlayers.count === 0) ||
-         (!connectedPlayers || connectedPlayers.count === 0) ||
-         (!recentPlayers || recentPlayers.count === 0);
+         ((!connectedPlayers || connectedPlayers.count === 0) && (!recentPlayers || recentPlayers.count === 0));
 }
 
 async function cleanupRoom(roomId, db) {
@@ -511,7 +529,7 @@ async function handleMove(ws, data, connectionId, db) {
       return;
     }
     
-    // Get current game state
+    // Get current game state with move_count for optimistic locking
     const gameState = await db.prepare(
       'SELECT board, current_turn, move_count, status FROM game_state WHERE room_id = ?'
     ).bind(roomId).first();
@@ -525,6 +543,9 @@ async function handleMove(ws, data, connectionId, db) {
       sendError(ws, ERROR_CODES.GAME_OVER);
       return;
     }
+    
+    // Store the expected move_count for optimistic locking
+    const expectedMoveCount = gameState.move_count || 0;
     
     // Validate turn
     const board = JSON.parse(gameState.board);
@@ -567,7 +588,7 @@ async function handleMove(ws, data, connectionId, db) {
     board[data.from.row][data.from.col] = null;
     
     const newTurn = gameState.current_turn === 'red' ? 'black' : 'red';
-    const moveCount = (gameState.move_count || 0) + 1;
+    const newMoveCount = expectedMoveCount + 1;
     const timestamp = Date.now();
     
     // Check for check/checkmate
@@ -592,16 +613,29 @@ async function handleMove(ws, data, connectionId, db) {
       piece: piece,
       captured: capturedPiece,
       timestamp: timestamp,
-      moveNumber: moveCount
+      moveNumber: newMoveCount
     });
     
-    // Update database
-    await db.batch([
-      db.prepare('UPDATE game_state SET board = ?, current_turn = ?, last_move = ?, move_count = ?, updated_at = ? WHERE room_id = ?')
-        .bind(JSON.stringify(board), newTurn, moveRecord, moveCount, timestamp, roomId),
-      db.prepare('UPDATE players SET last_seen = ? WHERE id = ?')
-        .bind(timestamp, connectionId)
-    ]);
+    // Update database with optimistic locking - only update if move_count matches expected value
+    const updateResult = await db.prepare(
+      'UPDATE game_state SET board = ?, current_turn = ?, last_move = ?, status = ?, move_count = ?, updated_at = ? WHERE room_id = ? AND move_count = ?'
+    ).bind(JSON.stringify(board), newTurn, moveRecord, gameStatus, newMoveCount, timestamp, roomId, expectedMoveCount).run();
+    
+    // Check if the update was successful (optimistic locking check)
+    if (!updateResult.meta || updateResult.meta.changes === 0) {
+      // Another move was applied first - reject this move
+      ws.send(JSON.stringify({
+        type: 'moveRejected',
+        from: data.from,
+        to: data.to,
+        error: 'Concurrent move detected - please refresh game state'
+      }));
+      return;
+    }
+    
+    // Update player's last_seen
+    await db.prepare('UPDATE players SET last_seen = ? WHERE id = ?')
+      .bind(timestamp, connectionId).run();
     
     if (gameStatus === 'finished') {
       await db.prepare('UPDATE rooms SET status = ? WHERE id = ?')
@@ -613,7 +647,7 @@ async function handleMove(ws, data, connectionId, db) {
       type: 'moveConfirmed',
       from: data.from,
       to: data.to,
-      moveNumber: moveCount
+      moveNumber: newMoveCount
     }));
     
     // Broadcast move
@@ -1070,6 +1104,12 @@ async function handleRejoin(ws, data, connectionId, db) {
       return;
     }
     
+    // Verify the existing player is actually disconnected to prevent race conditions
+    if (player.connected === 1) {
+      sendError(ws, ERROR_CODES.REJOIN_FAILED, 'Player is still connected - cannot rejoin');
+      return;
+    }
+    
     // Update player connection
     await db.batch([
       db.prepare('UPDATE players SET id = ?, connected = 1, last_seen = ? WHERE room_id = ? AND color = ?')
@@ -1221,11 +1261,15 @@ function sendError(ws, errorInfo, details = null) {
 }
 
 function generateConnectionId() {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const array = new Uint8Array(12);
+  crypto.getRandomValues(array);
+  return `${Date.now()}-${Array.from(array, b => b.toString(36)).join('').substr(0, 9)}`;
 }
 
 function generateRoomId() {
-  return Math.random().toString(36).substr(2, 8).toUpperCase();
+  const array = new Uint8Array(6);
+  crypto.getRandomValues(array);
+  return Array.from(array, b => b.toString(36)).join('').substr(0, 8).toUpperCase();
 }
 
 function initializeBoard() {

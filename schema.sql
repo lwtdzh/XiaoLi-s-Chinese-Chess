@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS game_state (
     current_turn TEXT NOT NULL, -- 'red' or 'black'
     last_move TEXT, -- JSON string of last move
     updated_at INTEGER NOT NULL,
+    status TEXT DEFAULT 'playing',
+    move_count INTEGER DEFAULT 0,
     FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
 
