@@ -80,6 +80,10 @@ export async function onRequestPost(context) {
   const { env, request } = context;
   const db = env.DB;
 
+  // Store request data at the beginning for error recovery
+  let requestData = {};
+  let roomId = null;
+
   try {
     // Check rate limit based on client IP
     const clientIp = request.headers.get('CF-Connecting-IP') || 
@@ -91,6 +95,9 @@ export async function onRequestPost(context) {
     }
     
     const body = await context.request.json();
+    // Store for error recovery
+    requestData = body;
+    
     const roomName = (body.roomName || '').trim();
     
     // Validate and sanitize player name to prevent SQL injection
@@ -124,9 +131,24 @@ export async function onRequestPost(context) {
       return Response.json({ error: '房间名称过长（最多100字符）' }, { status: 400 });
     }
 
-    const roomId = crypto.randomUUID();
+    roomId = crypto.randomUUID();
     const playerId = crypto.randomUUID();
     const now = Date.now();
+
+    // Check for existing room with same name and clean up if stale
+    const existingRoom = await db.prepare(
+      'SELECT id, created_at FROM rooms WHERE name = ?'
+    ).bind(roomName).first();
+    
+    if (existingRoom) {
+      const isStale = await checkRoomStale(existingRoom.id, db);
+      if (isStale) {
+        console.log(`[API] Cleaning up stale room: ${existingRoom.id}`);
+        await cleanupRoom(existingRoom.id, db);
+      } else {
+        return Response.json({ error: '房间名称已存在，请使用其他名称' }, { status: 409 });
+      }
+    }
 
     // Use transaction to prevent race condition in room creation
     // This ensures atomicity: either all operations succeed or all fail
@@ -165,34 +187,32 @@ export async function onRequestPost(context) {
     
     // If error occurred during room creation, attempt cleanup
     // This handles incomplete error recovery
-    if (error.message && error.message.includes('Failed to create room')) {
-      try {
-        // Attempt to clean up any partially created resources using roomId
-        const body = await context.request.json().catch(() => ({}));
-        if (body.roomName) {
-          const existing = await db.prepare(
-            'SELECT id FROM rooms WHERE name = ?'
-          ).bind(body.roomName.trim()).first();
-          
-          if (existing) {
-            const isStale = await checkRoomStale(existing.id, db);
-            if (isStale) {
-              await cleanupRoom(existing.id, db);
-              console.log(`[API] Cleaned up incomplete room: ${existing.id}`);
-            }
-          }
+    try {
+      // Clean up by roomId if we have it
+      if (roomId) {
+        const isStale = await checkRoomStale(roomId, db);
+        if (isStale) {
+          await cleanupRoom(roomId, db);
+          console.log(`[API] Cleaned up incomplete room by roomId: ${roomId}`);
         }
-        // Also cleanup by roomId if we have it
-        if (body.roomId) {
-          const isStale = await checkRoomStale(body.roomId, db);
-          if (isStale) {
-            await cleanupRoom(body.roomId, db);
-            console.log(`[API] Cleaned up incomplete room by roomId: ${body.roomId}`);
-          }
-        }
-      } catch (cleanupError) {
-        console.error('[API] Cleanup error:', cleanupError);
       }
+      
+      // Also try to clean up by room name if provided
+      if (requestData.roomName) {
+        const existing = await db.prepare(
+          'SELECT id FROM rooms WHERE name = ?'
+        ).bind(requestData.roomName.trim()).first();
+        
+        if (existing) {
+          const isStale = await checkRoomStale(existing.id, db);
+          if (isStale) {
+            await cleanupRoom(existing.id, db);
+            console.log(`[API] Cleaned up incomplete room by name: ${existing.id}`);
+          }
+        }
+      }
+    } catch (cleanupError) {
+      console.error('[API] Cleanup error:', cleanupError);
     }
     
     return Response.json({ error: '创建房间失败，请稍后重试' }, { status: 500 });
