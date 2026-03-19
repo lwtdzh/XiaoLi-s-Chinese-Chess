@@ -47,7 +47,9 @@ class ChineseChess {
         
         // Initialize
         this.initUI();
-        this.connectWebSocket();
+        // 不在构造函数中自动连接 WebSocket，而是在 createRoom/joinRoom 时才连接
+        // this.connectWebSocket();
+        this.updateConnectionStatus('idle');
     }
 
     // ========================================
@@ -789,11 +791,19 @@ class ChineseChess {
             
             this.socket.onclose = (event) => {
                 console.log('WebSocket closed:', event.code, event.reason);
+                
+                // 竞态修复：如果是我们主动关闭旧 socket，忽略此事件
+                if (this._isClosingOldSocket) {
+                    this._isClosingOldSocket = false;
+                    return;
+                }
+                
                 this.connectionState = 'disconnected';
                 this.stopHeartbeat();
                 this.updateConnectionStatus('disconnected');
                 
-                if (event.code !== 1000 && event.code !== 1001) {
+                // 只在意外关闭且已有 roomId 时才尝试重连
+                if (event.code !== 1000 && event.code !== 1001 && this.roomId) {
                     this.attemptReconnect();
                 }
             };
@@ -813,6 +823,12 @@ class ChineseChess {
     }
 
     attemptReconnect() {
+        // 没有 roomId 时不应该重连
+        if (!this.roomId) {
+            console.log('No room ID, skipping reconnect');
+            return;
+        }
+        
         if (this.connectionState === 'reconnecting') {
             return;
         }
@@ -1227,9 +1243,10 @@ class ChineseChess {
             return;
         }
         
-        // Close existing connection and create new one
+        // 竞态修复：在关闭旧 socket 前设置标志，防止 onclose 回调干扰新连接
         if (this.socket) {
             this.stopHeartbeat();
+            this._isClosingOldSocket = true;
             this.socket.close();
         }
         
@@ -1257,9 +1274,10 @@ class ChineseChess {
             return;
         }
         
-        // Close existing connection and create new one
+        // 竞态修复：在关闭旧 socket 前设置标志，防止 onclose 回调干扰新连接
         if (this.socket) {
             this.stopHeartbeat();
+            this._isClosingOldSocket = true;
             this.socket.close();
         }
         
@@ -1456,13 +1474,14 @@ class ChineseChess {
         if (!statusElement) return;
         
         const states = {
+            idle: { text: 'Ready to connect', className: 'status idle' },
             connected: { text: 'Connected', className: 'status connected' },
             connecting: { text: 'Connecting...', className: 'status connecting' },
             disconnected: { text: 'Disconnected', className: 'status disconnected' },
             reconnecting: { text: 'Reconnecting...', className: 'status reconnecting' }
         };
         
-        const config = states[state] || states.disconnected;
+        const config = states[state] || states.idle;
         statusElement.textContent = config.text;
         statusElement.className = config.className;
     }

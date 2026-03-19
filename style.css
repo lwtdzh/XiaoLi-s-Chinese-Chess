@@ -97,14 +97,29 @@ button:active {
     font-weight: 600;
 }
 
+.status.idle {
+    background: #e7f3ff;
+    color: #0c5460;
+}
+
 .status.connected {
     background: #d4edda;
     color: #155724;
 }
 
+.status.connecting {
+    background: #fff3cd;
+    color: #856404;
+}
+
 .status.disconnected {
     background: #f8d7da;
     color: #721c24;
+}
+
+.status.reconnecting {
+    background: #fff3cd;
+    color: #856404;
 }
 
 .lobby-message {
