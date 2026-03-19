@@ -13,6 +13,11 @@ export async function onRequestPost(context) {
       return Response.json({ error: '缺少 playerId' }, { status: 400 });
     }
 
+    // Validate playerId format to prevent potential injection
+    if (!/^[a-f0-9-]{36}$/.test(playerId)) {
+      return Response.json({ error: '无效的 playerId 格式' }, { status: 400 });
+    }
+
     // 获取玩家信息
     const player = await db.prepare(
       'SELECT id, color FROM players WHERE id = ? AND room_id = ?'

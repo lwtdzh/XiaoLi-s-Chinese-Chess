@@ -69,6 +69,11 @@ input:focus {
     border-color: #667eea;
 }
 
+input:focus-visible {
+    outline: 3px solid #667eea;
+    outline-offset: 2px;
+}
+
 button {
     padding: 12px 20px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -79,6 +84,11 @@ button {
     font-weight: 600;
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+}
+
+button:focus-visible {
+    outline: 3px solid #667eea;
+    outline-offset: 2px;
 }
 
 button:hover:not(:disabled) {
@@ -350,5 +360,16 @@ button:disabled {
 
     .game-header .player-info {
         font-size: 13px;
+    }
+
+    /* Improve touch targets on mobile */
+    button {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    /* Better readability on small screens */
+    .room-id-box code {
+        font-size: 10px;
     }
 }

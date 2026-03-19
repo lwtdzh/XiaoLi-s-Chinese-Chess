@@ -8,6 +8,12 @@ export async function onRequestPost(context) {
   try {
     const body = await context.request.json();
 
+    // Validate player name length
+    const playerName = (body.playerName || 'Player').trim();
+    if (playerName.length > 50) {
+      return Response.json({ error: '玩家名称过长（最多50字符）' }, { status: 400 });
+    }
+
     // 先通过 ID 查找，再通过名称查找
     let room = await db.prepare(
       'SELECT id, name, status, red_player_id, black_player_id FROM rooms WHERE id = ?'
@@ -25,21 +31,43 @@ export async function onRequestPost(context) {
 
     // 检查是否是已有玩家重连
     if (body.playerId) {
+      // 验证 playerId 格式
+      if (!/^[a-f0-9-]{36}$/.test(body.playerId)) {
+        return Response.json({ error: '无效的 playerId 格式' }, { status: 400 });
+      }
+      
       const existingPlayer = await db.prepare(
         'SELECT id, color, name, connected FROM players WHERE id = ? AND room_id = ?'
       ).bind(body.playerId, room.id).first();
 
       if (existingPlayer) {
-        // 断线重连优先：允许“踢下线并接管”
-        // 场景：多开标签页/网络抖动导致旧端仍显示 connected=1，但用户希望用同一 playerId 恢复。
-        // 做法：直接以 playerId 为准接管席位（本表以 playerId 作为唯一连接标识）。
-        await db.prepare(
+        // 断线重连优先：允许"踢下线并接管"
+        const updateResult = await db.prepare(
           'UPDATE players SET connected = 1, last_seen = ? WHERE id = ? AND room_id = ?'
         ).bind(Date.now(), body.playerId, room.id).run();
+        
+        if (!updateResult.success) {
+          return Response.json({ error: '重连失败' }, { status: 500 });
+        }
 
         const gameState = await db.prepare(
           'SELECT board, current_turn, last_move, move_count, status, winner, updated_at FROM game_state WHERE room_id = ?'
         ).bind(room.id).first();
+
+        // Add JSON parsing error handling
+        let parsedBoard;
+        let parsedLastMove = null;
+        try {
+          if (gameState) {
+            parsedBoard = JSON.parse(gameState.board);
+            if (gameState.last_move) {
+              parsedLastMove = JSON.parse(gameState.last_move);
+            }
+          }
+        } catch (parseError) {
+          console.error('[API] JSON parse error in join reconnection:', parseError);
+          return Response.json({ error: '游戏状态数据损坏' }, { status: 500 });
+        }
 
         return Response.json({
           roomId: room.id,
@@ -48,9 +76,9 @@ export async function onRequestPost(context) {
           color: existingPlayer.color,
           reconnected: true,
           gameState: gameState ? {
-            board: JSON.parse(gameState.board),
+            board: parsedBoard,
             currentTurn: gameState.current_turn,
-            lastMove: gameState.last_move ? JSON.parse(gameState.last_move) : null,
+            lastMove: parsedLastMove,
             moveCount: gameState.move_count,
             status: gameState.status,
             winner: gameState.winner,
@@ -61,7 +89,6 @@ export async function onRequestPost(context) {
     }
 
     // 检查房间是否已满
-    // 断线重连优先：即使 connected=0，也不允许第三人顶替席位
     if (room.red_player_id && room.black_player_id) {
       return Response.json({ error: '房间已满' }, { status: 409 });
     }
@@ -81,21 +108,33 @@ export async function onRequestPost(context) {
         'UPDATE rooms SET black_player_id = ?, status = ? WHERE id = ?'
       ).bind(playerId, 'playing', room.id).run();
 
-      // 房间满员后再把 game_state 置为 playing
       await db.prepare(
         'UPDATE game_state SET status = ?, updated_at = ? WHERE room_id = ? AND status != ?'
       ).bind('playing', Date.now(), room.id, 'ended').run();
     }
 
-    // 创建玩家记录
     await db.prepare(
       'INSERT INTO players (id, room_id, color, name, connected, last_seen) VALUES (?, ?, ?, ?, 1, ?)'
-    ).bind(playerId, room.id, assignedColor, body.playerName || 'Player', now).run();
+    ).bind(playerId, room.id, assignedColor, playerName, now).run();
 
-    // 获取游戏状态
     const gameState = await db.prepare(
       'SELECT board, current_turn, last_move, move_count, status, winner, updated_at FROM game_state WHERE room_id = ?'
     ).bind(room.id).first();
+
+    // Add JSON parsing error handling
+    let parsedBoard;
+    let parsedLastMove = null;
+    try {
+      if (gameState) {
+        parsedBoard = JSON.parse(gameState.board);
+        if (gameState.last_move) {
+          parsedLastMove = JSON.parse(gameState.last_move);
+        }
+      }
+    } catch (parseError) {
+      console.error('[API] JSON parse error in join new player:', parseError);
+      return Response.json({ error: '游戏状态数据损坏' }, { status: 500 });
+    }
 
     return Response.json({
       roomId: room.id,
@@ -103,9 +142,9 @@ export async function onRequestPost(context) {
       playerId,
       color: assignedColor,
       gameState: gameState ? {
-        board: JSON.parse(gameState.board),
+        board: parsedBoard,
         currentTurn: gameState.current_turn,
-        lastMove: gameState.last_move ? JSON.parse(gameState.last_move) : null,
+        lastMove: parsedLastMove,
         moveCount: gameState.move_count,
         status: gameState.status,
         winner: gameState.winner,

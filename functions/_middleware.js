@@ -1,7 +1,9 @@
-// 全局中间件 — 确保数据库表已初始化
+// 全局中间件 — 确保数据库表已初始化 & 概率性清理过期房间
 
 // Workers 实例可能随时回收，模块级缓存仅用于同一实例内的多次请求优化
 let dbInitialized = false;
+
+const STALE_ROOM_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 async function initializeDatabase(db) {
   if (dbInitialized) return;
@@ -25,7 +27,7 @@ async function initializeDatabase(db) {
           current_turn TEXT NOT NULL,
           last_move TEXT,
           move_count INTEGER DEFAULT 0,
-          status TEXT DEFAULT 'playing',
+          status TEXT DEFAULT 'waiting',
           winner TEXT,
           updated_at INTEGER NOT NULL,
           FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
@@ -54,11 +56,55 @@ async function initializeDatabase(db) {
   }
 }
 
+async function cleanupAllStaleRooms(db) {
+  try {
+    const now = Date.now();
+    const cutoff = now - STALE_ROOM_TIMEOUT;
+
+    // Find rooms where ALL players are disconnected AND inactive beyond timeout,
+    // or rooms that have no players at all.
+    const staleRooms = await db.prepare(`
+      SELECT r.id FROM rooms r
+      WHERE NOT EXISTS (
+        SELECT 1 FROM players p
+        WHERE p.room_id = r.id AND (p.connected = 1 OR p.last_seen > ?)
+      )
+    `).bind(cutoff).all();
+
+    const roomIds = (staleRooms.results || []).map(r => r.id);
+    if (roomIds.length === 0) return;
+
+    // Batch delete in chunks to stay within D1 limits
+    // Added error handling for individual deletions
+    for (const roomId of roomIds) {
+      try {
+        await db.batch([
+          db.prepare('DELETE FROM players WHERE room_id = ?').bind(roomId),
+          db.prepare('DELETE FROM game_state WHERE room_id = ?').bind(roomId),
+          db.prepare('DELETE FROM rooms WHERE id = ?').bind(roomId)
+        ]);
+      } catch (deleteError) {
+        console.error(`[Middleware] Failed to delete room ${roomId}:`, deleteError);
+      }
+    }
+
+    console.log(`[Middleware] Cleaned up ${roomIds.length} stale room(s)`);
+  } catch (error) {
+    // Never let cleanup failure affect normal requests
+    console.error('[Middleware] Stale room cleanup error:', error);
+  }
+}
+
 export async function onRequest(context) {
   const { env } = context;
 
   if (env.DB) {
     await initializeDatabase(env.DB);
+
+    // ~10% chance to trigger global stale room cleanup per request
+    if (Math.random() < 0.1) {
+      context.waitUntil(cleanupAllStaleRooms(env.DB));
+    }
   }
 
   const isApiRequest = context.request.url.includes('/api/');

@@ -39,6 +39,22 @@ async function buildRoomResponse(db, room) {
     'SELECT id, color, name, connected FROM players WHERE room_id = ?'
   ).bind(room.id).all();
 
+  // Add error handling for JSON parsing
+  let parsedBoard;
+  let parsedLastMove = null;
+  
+  try {
+    if (gameState) {
+      parsedBoard = JSON.parse(gameState.board);
+      if (gameState.last_move) {
+        parsedLastMove = JSON.parse(gameState.last_move);
+      }
+    }
+  } catch (parseError) {
+    console.error('[API] JSON parse error in buildRoomResponse:', parseError);
+    return Response.json({ error: '游戏状态数据损坏' }, { status: 500 });
+  }
+
   return Response.json({
     room: {
       id: room.id,
@@ -48,9 +64,9 @@ async function buildRoomResponse(db, room) {
       hasBlack: !!room.black_player_id
     },
     gameState: gameState ? {
-      board: JSON.parse(gameState.board),
+      board: parsedBoard,
       currentTurn: gameState.current_turn,
-      lastMove: gameState.last_move ? JSON.parse(gameState.last_move) : null,
+      lastMove: parsedLastMove,
       moveCount: gameState.move_count,
       status: gameState.status,
       winner: gameState.winner,

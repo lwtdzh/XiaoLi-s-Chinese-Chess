@@ -10,12 +10,21 @@ export async function onRequestGet(context) {
     const since = parseInt(url.searchParams.get('since') || '0', 10);
     const playerId = url.searchParams.get('playerId') || '';
 
+    // Validate playerId format to prevent potential injection
+    if (playerId && !/^[a-f0-9-]{36}$/.test(playerId)) {
+      return Response.json({ error: '无效的 playerId 格式' }, { status: 400 });
+    }
+
     // 更新玩家最后活跃时间
-    // 断线重连优先：仅当玩家属于该房间时才更新，避免任意 playerId 影响连接状态
     if (playerId) {
-      await db.prepare(
+      const updateResult = await db.prepare(
         'UPDATE players SET last_seen = ?, connected = 1 WHERE id = ? AND room_id = ?'
       ).bind(Date.now(), playerId, roomId).run();
+      
+      // 如果更新失败（玩家不存在），仍然继续返回状态，但不影响其他玩家
+      if (!updateResult.success) {
+        console.warn('[API] Failed to update player last_seen, but continuing');
+      }
     }
 
     // 获取房间信息
@@ -49,6 +58,21 @@ export async function onRequestGet(context) {
       p => p.id !== playerId && (now - p.last_seen) < 30000
     );
 
+    // Add JSON parsing error handling
+    let parsedBoard;
+    let parsedLastMove = null;
+    try {
+      if (state) {
+        parsedBoard = JSON.parse(state.board);
+        if (state.last_move) {
+          parsedLastMove = JSON.parse(state.last_move);
+        }
+      }
+    } catch (parseError) {
+      console.error('[API] JSON parse error in state polling:', parseError);
+      return Response.json({ error: '游戏状态数据损坏' }, { status: 500 });
+    }
+
     return Response.json({
       updated: hasUpdate,
       room: {
@@ -59,9 +83,9 @@ export async function onRequestGet(context) {
         hasBlack: !!room.black_player_id
       },
       gameState: {
-        board: JSON.parse(state.board),
+        board: parsedBoard,
         currentTurn: state.current_turn,
-        lastMove: state.last_move ? JSON.parse(state.last_move) : null,
+        lastMove: parsedLastMove,
         moveCount: state.move_count,
         status: state.status,
         winner: state.winner,

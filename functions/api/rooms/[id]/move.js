@@ -54,7 +54,14 @@ export async function onRequestPost(context) {
       return Response.json({ error: '不是你的回合' }, { status: 400 });
     }
 
-    const board = JSON.parse(state.board);
+    // 添加 JSON 解析错误处理
+    let board;
+    try {
+      board = JSON.parse(state.board);
+    } catch (parseError) {
+      console.error('[API] JSON parse error in move:', parseError);
+      return Response.json({ error: '游戏状态数据损坏' }, { status: 500 });
+    }
 
     // 验证走法
     if (!validateMove(board, from, to, player.color)) {

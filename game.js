@@ -23,6 +23,9 @@ class ChineseChess {
         // Check state
         this.isInCheck = false;
 
+        // Event listener tracking for cleanup
+        this.eventListeners = [];
+
         // Initialize
         this.initUI();
         this.restoreSession();
@@ -55,11 +58,17 @@ class ChineseChess {
                 // 避免在初始化阶段重复触发 join/poll，确保只恢复一次
                 if (this._restoringSession) return;
                 this._restoringSession = true;
-                this.rejoinRoom(session).finally(() => {
-                    this._restoringSession = false;
-                });
+                this.rejoinRoom(session)
+                    .catch((e) => {
+                        console.error('[Session Restore] Error:', e);
+                        sessionStorage.removeItem('chess_session');
+                    })
+                    .finally(() => {
+                        this._restoringSession = false;
+                    });
             }
         } catch (e) {
+            console.error('[Session Restore] Parse error:', e);
             sessionStorage.removeItem('chess_session');
         }
     }
@@ -89,6 +98,8 @@ class ChineseChess {
             }
 
             this.switchToGameScreen();
+            // 先停止可能存在的轮询，再启动新的轮询，避免重复
+            this.stopPolling();
             this.startPolling();
             this.showMessage('✅ 已恢复游戏');
         } catch (e) {
@@ -142,6 +153,29 @@ class ChineseChess {
     }
 
     // ========================================
+    // Cleanup
+    // ========================================
+
+    cleanup() {
+        // Stop polling
+        this.stopPolling();
+        
+        // Remove all tracked event listeners
+        this.eventListeners.forEach(({ element, event, handler }) => {
+            element.removeEventListener(event, handler);
+        });
+        this.eventListeners = [];
+        
+        // Clear session
+        sessionStorage.removeItem('chess_session');
+    }
+
+    addTrackedEventListener(element, event, handler) {
+        element.addEventListener(event, handler);
+        this.eventListeners.push({ element, event, handler });
+    }
+
+    // ========================================
     // UI Initialization
     // ========================================
 
@@ -155,9 +189,9 @@ class ChineseChess {
         const joinBtn = document.getElementById('joinRoomBtn');
         const leaveBtn = document.getElementById('leaveRoomBtn');
 
-        if (createBtn) createBtn.addEventListener('click', () => this.createRoom());
-        if (joinBtn) joinBtn.addEventListener('click', () => this.joinRoom());
-        if (leaveBtn) leaveBtn.addEventListener('click', () => this.leaveRoom());
+        if (createBtn) this.addTrackedEventListener(createBtn, 'click', () => this.createRoom());
+        if (joinBtn) this.addTrackedEventListener(joinBtn, 'click', () => this.joinRoom());
+        if (leaveBtn) this.addTrackedEventListener(leaveBtn, 'click', () => this.leaveRoom());
     }
 
     // ========================================
@@ -177,6 +211,12 @@ class ChineseChess {
         const offsetY = 22; // 棋子中心 Y 偏移
         const pieceRadius = 20; // 棋子半径
 
+        // 移除之前棋盘上所有棋子和合法走法标记的事件监听器
+        // 避免在频繁渲染时累积监听器导致内存泄漏
+        this.eventListeners = this.eventListeners.filter(({ element }) => {
+            return !boardElement.contains(element);
+        });
+
         for (let row = 0; row < 10; row++) {
             for (let col = 0; col < 9; col++) {
                 const piece = this.board[row][col];
@@ -189,6 +229,8 @@ class ChineseChess {
                     el.style.top = `${row * cellSize + offsetY - pieceRadius}px`;
                     el.dataset.row = row;
                     el.dataset.col = col;
+                    el.setAttribute('role', 'gridcell');
+                    el.setAttribute('aria-label', `${piece.color === 'red' ? '红' : '黑'}方${piece.name}`);
 
                     if (this.selectedPosition &&
                         this.selectedPosition.row === row &&
@@ -196,7 +238,7 @@ class ChineseChess {
                         el.classList.add('selected');
                     }
 
-                    el.addEventListener('click', () => this.handlePieceClick(row, col));
+                    this.addTrackedEventListener(el, 'click', () => this.handlePieceClick(row, col));
                     boardElement.appendChild(el);
                 }
             }
@@ -208,7 +250,9 @@ class ChineseChess {
             dot.className = 'valid-move';
             dot.style.left = `${move.col * cellSize + offsetX}px`;
             dot.style.top = `${move.row * cellSize + offsetY}px`;
-            dot.addEventListener('click', () => this.handleMoveClick(move.row, move.col));
+            dot.setAttribute('role', 'button');
+            dot.setAttribute('aria-label', `移动到第${move.row + 1}行第${move.col + 1}列`);
+            this.addTrackedEventListener(dot, 'click', () => this.handleMoveClick(move.row, move.col));
             boardElement.appendChild(dot);
         });
 
@@ -371,9 +415,18 @@ class ChineseChess {
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
                 if (res.status === 409 && err && err.code === 'MOVE_CONFLICT') {
-                    // 并发冲突：不把它当作“走子失败”，而是提示并尽快通过轮询拉取最新状态
+                    // 并发冲突：不把它当作"走子失败"，而是提示并尽快通过轮询拉取最新状态
                     this.showMessage('⚠️ 对局已更新，请稍候同步...');
-                    this.pollState();
+                    // 立即触发一次轮询以获取最新状态
+                    await this.pollState();
+                    // 回滚本地状态，使用之前保存的旧状态而不是乐观更新后的状态
+                    this.moveCount--;
+                    this.board = previousBoard;
+                    this.currentPlayer = previousTurn;
+                    this.isInCheck = previousCheck;
+                    this.gameOver = false;
+                    this.renderBoard();
+                    this.updateTurnIndicator();
                     throw new Error('MOVE_CONFLICT');
                 }
                 throw new Error(err.error || '走子失败');
@@ -416,7 +469,7 @@ class ChineseChess {
         let moves = [];
 
         switch (piece.type) {
-            case 'jiang': moves = this.getJiangMoves(row, col, piece.color); break;
+            case 'jiang': moves = this.getJiangBasicMoves(row, col, piece.color); break;
             case 'shi': moves = this.getShiMoves(row, col, piece.color); break;
             case 'xiang': moves = this.getXiangMoves(row, col, piece.color); break;
             case 'ma': moves = this.getMaMoves(row, col, piece.color); break;
@@ -452,20 +505,6 @@ class ChineseChess {
                 if (!target || target.color !== color) {
                     moves.push({ row: nr, col: nc });
                 }
-            }
-        }
-
-        // 飞将：仅在生成可走步时使用，不参与将军检测（isKingInCheck 单独检查）
-        const oppColor = color === 'red' ? 'black' : 'red';
-        for (let r = 0; r < 10; r++) {
-            if (this.board[r][col] && this.board[r][col].type === 'jiang' && this.board[r][col].color === oppColor) {
-                let blocked = false;
-                const sr = Math.min(row, r);
-                const er = Math.max(row, r);
-                for (let cr = sr + 1; cr < er; cr++) {
-                    if (this.board[cr][col]) { blocked = true; break; }
-                }
-                if (!blocked) moves.push({ row: r, col: col });
             }
         }
 
@@ -527,7 +566,8 @@ class ChineseChess {
             if (color === 'red' && nr < 5) continue;
             if (color === 'black' && nr > 4) continue;
 
-            if (!this.board[blockRow][blockCol]) {
+            // 检查塞象眼位置是否有效
+            if (this.isValidPosition(blockRow, blockCol) && !this.board[blockRow][blockCol]) {
                 const target = this.board[nr][nc];
                 if (!target || target.color !== color) {
                     moves.push({ row: nr, col: nc });
@@ -557,7 +597,9 @@ class ChineseChess {
             const bc = col + jump.block[1];
 
             if (!this.isValidPosition(nr, nc)) continue;
-            if (this.board[br] && this.board[br][bc]) continue;
+            // 检查蹩马腿位置是否有效
+            if (!this.isValidPosition(br, bc)) continue;
+            if (this.board[br][bc]) continue;
 
             const target = this.board[nr][nc];
             if (!target || target.color !== color) {
@@ -664,6 +706,18 @@ class ChineseChess {
 
         const oppColor = color === 'red' ? 'black' : 'red';
 
+        // 优先检查飞将（两将在同一列且中间无子）
+        const oppKing = this.findKing(board, oppColor);
+        if (oppKing && oppKing.col === king.col) {
+            let blocked = false;
+            const sr = Math.min(king.row, oppKing.row);
+            const er = Math.max(king.row, oppKing.row);
+            for (let r = sr + 1; r < er; r++) {
+                if (board[r][king.col]) { blocked = true; break; }
+            }
+            if (!blocked) return true;
+        }
+
         // 检查对方所有棋子是否能攻击到己方将/帅
         for (let row = 0; row < 10; row++) {
             for (let col = 0; col < 9; col++) {
@@ -675,18 +729,6 @@ class ChineseChess {
                     }
                 }
             }
-        }
-
-        // 检查飞将（两将在同一列且中间无子）
-        const oppKing = this.findKing(board, oppColor);
-        if (oppKing && oppKing.col === king.col) {
-            let blocked = false;
-            const sr = Math.min(king.row, oppKing.row);
-            const er = Math.max(king.row, oppKing.row);
-            for (let r = sr + 1; r < er; r++) {
-                if (board[r][king.col]) { blocked = true; break; }
-            }
-            if (!blocked) return true;
         }
 
         return false;
@@ -724,10 +766,13 @@ class ChineseChess {
                 const piece = board[row][col];
                 if (piece && piece.color === color) {
                     const originalBoard = this.board;
-                    this.board = board;
-                    const moves = this.getValidMoves(row, col, piece);
-                    this.board = originalBoard;
-                    if (moves.length > 0) return false;
+                    try {
+                        this.board = board;
+                        const moves = this.getValidMoves(row, col, piece);
+                        if (moves.length > 0) return false;
+                    } finally {
+                        this.board = originalBoard;
+                    }
                 }
             }
         }
@@ -802,6 +847,10 @@ class ChineseChess {
     // ========================================
 
     startPolling() {
+        // 防止重复启动轮询
+        if (this.pollTimer) {
+            return;
+        }
         this.stopPolling();
         this.pollTimer = setInterval(() => this.pollState(), this.pollInterval);
     }
@@ -825,6 +874,9 @@ class ChineseChess {
             if (!res.ok) return;
 
             const data = await res.json();
+
+            // 再次检查是否正在离开房间，避免在异步操作期间状态改变
+            if (this._leavingRoom) return;
 
             // 更新对手在线状态
             this.updateOpponentStatus(data);
@@ -913,6 +965,8 @@ class ChineseChess {
             this.lastUpdatedAt = Date.now();
 
             this.switchToGameScreen();
+            // 先停止可能存在的轮询，再启动新的轮询，避免重复
+            this.stopPolling();
             this.startPolling();
             this.showMessage(`✅ 房间已创建！房间 ID: ${data.roomId.slice(0, 8)}...`);
 
@@ -967,6 +1021,8 @@ class ChineseChess {
             }
 
             this.switchToGameScreen();
+            // 先停止可能存在的轮询，再启动新的轮询，避免重复
+            this.stopPolling();
             this.startPolling();
             this.showMessage(`✅ 已加入房间 "${data.roomName}"，你是${data.color === 'red' ? '红方' : '黑方'}`);
         } catch (error) {
@@ -1082,5 +1138,29 @@ class ChineseChess {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    window.game = new ChineseChess();
+    try {
+        window.game = new ChineseChess();
+        
+        // 添加页面卸载时的清理逻辑
+        window.addEventListener('beforeunload', () => {
+            if (window.game) {
+                window.game.cleanup();
+            }
+        });
+        
+        // 全局错误处理
+        window.addEventListener('error', (event) => {
+            console.error('[Global Error]', event.error);
+            // 可以在这里添加错误上报逻辑
+        });
+    } catch (error) {
+        console.error('[Initialization Error]', error);
+        document.body.innerHTML = `
+            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; text-align: center; padding: 20px;">
+                <h2 style="color: #dc3545;">游戏初始化失败</h2>
+                <p style="color: #6c757d; margin-top: 10px;">请刷新页面重试</p>
+                <button onclick="location.reload()" style="margin-top: 20px; padding: 12px 24px; background: #667eea; color: white; border: none; border-radius: 10px; cursor: pointer;">刷新页面</button>
+            </div>
+        `;
+    }
 });
