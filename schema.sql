@@ -1,4 +1,3 @@
-
 -- Database schema for Chinese Chess game
 -- Cloudflare D1 database
 
@@ -18,10 +17,10 @@ CREATE TABLE IF NOT EXISTS game_state (
     board TEXT NOT NULL, -- JSON string of the board
     current_turn TEXT NOT NULL, -- 'red' or 'black'
     last_move TEXT, -- JSON string of last move
-    updated_at INTEGER NOT NULL,
-    status TEXT DEFAULT 'playing',
     move_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'waiting',
     winner TEXT, -- 'red' or 'black' when game ends
+    updated_at INTEGER NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
 
@@ -30,6 +29,7 @@ CREATE TABLE IF NOT EXISTS players (
     id TEXT PRIMARY KEY,
     room_id TEXT NOT NULL,
     color TEXT NOT NULL, -- 'red' or 'black'
+    name TEXT DEFAULT 'Player',
     connected INTEGER DEFAULT 1, -- 1 = connected, 0 = disconnected
     last_seen INTEGER NOT NULL,
     FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE

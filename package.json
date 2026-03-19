@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "dev:local": "wrangler dev functions/_worker.js --local --port 8788 --assets public",
+    "dev:local": "npm run build && wrangler pages dev public --d1=DB=chinachess --local --port 8788",
     "db:init": "wrangler d1 execute chinachess --file=./schema.sql --local",
     "db:init:remote": "wrangler d1 execute chinachess --file=./schema.sql --remote",
     "deploy": "npm run build && wrangler pages deploy public",
