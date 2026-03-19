@@ -1,4 +1,3 @@
-
 // Test setup file for Chinese Chess project
 // This file configures the test environment
 
@@ -8,14 +7,11 @@ import { vi } from 'vitest';
 class MockWebSocket {
   constructor(url) {
     this.url = url;
-    this.readyState = MockWebSocket.OPEN;  // 立即设置为 OPEN 状态，便于测试
+    this.readyState = MockWebSocket.CONNECTING;  // Start in CONNECTING state (not OPEN)
     this.onopen = null;
     this.onclose = null;
     this.onerror = null;
     this.onmessage = null;
-    
-    // 同步触发 onopen 回调（如果已设置）
-    // 注意：在测试中，onopen 通常在构造后设置，所以需要手动调用 simulateOpen()
   }
   
   // Helper to simulate connection open
@@ -107,10 +103,10 @@ class MockStatement {
     const rows = this.db.data.get(table) || [];
     
     if (this.sql.includes('SELECT')) {
-      // Simple WHERE clause matching
+      // Improved WHERE clause matching - match all binding values
       if (this.bindings.length > 0) {
         return rows.find(row => 
-          this.bindings.some((val, i) => 
+          this.bindings.every((val, i) => 
             Object.values(row).includes(val)
           )
         ) || null;
@@ -228,3 +224,16 @@ export {
   createMockEnv,
   setupDOM
 };
+
+// Cleanup function to reset mock state
+export function resetMockState() {
+  // Reset any global state if needed
+  if (typeof global !== 'undefined') {
+    if (global.console) {
+      // Reset console mocks
+      if (global.console.log.mockReset) global.console.log.mockReset();
+      if (global.console.error.mockReset) global.console.error.mockReset();
+      if (global.console.warn.mockReset) global.console.warn.mockReset();
+    }
+  }
+}

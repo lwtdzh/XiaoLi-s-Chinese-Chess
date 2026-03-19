@@ -1,4 +1,3 @@
-
 // Database Integration Tests
 // Tests for D1 database operations, room persistence, and state management
 
@@ -126,8 +125,10 @@ describe('Room Operations', () => {
     await db.prepare('UPDATE rooms SET status = ? WHERE id = ?')
       .bind('playing', roomId).run();
     
-    // In real implementation, we would verify the update
-    expect(true).toBe(true);
+    const room = await db.prepare('SELECT status FROM rooms WHERE id = ?')
+      .bind(roomId).first();
+    
+    expect(room.status).toBe('playing');
   });
 
   it('should delete room', async () => {
@@ -139,8 +140,10 @@ describe('Room Operations', () => {
     
     await db.prepare('DELETE FROM rooms WHERE id = ?').bind(roomId).run();
     
-    // In real implementation, we would verify the deletion
-    expect(true).toBe(true);
+    const room = await db.prepare('SELECT * FROM rooms WHERE id = ?')
+      .bind(roomId).first();
+    
+    expect(room).toBeUndefined();
   });
 });
 
@@ -178,8 +181,11 @@ describe('Game State Operations', () => {
       'UPDATE game_state SET current_turn = ?, move_count = ?, updated_at = ? WHERE room_id = ?'
     ).bind('black', 1, Date.now(), roomId).run();
     
-    // In real implementation, we would verify the update
-    expect(true).toBe(true);
+    const state = await db.prepare('SELECT current_turn, move_count FROM game_state WHERE room_id = ?')
+      .bind(roomId).first();
+    
+    expect(state.current_turn).toBe('black');
+    expect(state.move_count).toBe(1);
   });
 
   it('should record last move', async () => {
@@ -232,8 +238,10 @@ describe('Player Operations', () => {
     await db.prepare('UPDATE players SET connected = ? WHERE id = ?')
       .bind(0, playerId).run();
     
-    // In real implementation, we would verify the update
-    expect(true).toBe(true);
+    const player = await db.prepare('SELECT connected FROM players WHERE id = ?')
+      .bind(playerId).first();
+    
+    expect(player.connected).toBe(0);
   });
 
   it('should count connected players', async () => {
@@ -260,8 +268,10 @@ describe('Player Operations', () => {
     
     await db.prepare('DELETE FROM players WHERE id = ?').bind(playerId).run();
     
-    // In real implementation, we would verify the deletion
-    expect(true).toBe(true);
+    const player = await db.prepare('SELECT * FROM players WHERE id = ?')
+      .bind(playerId).first();
+    
+    expect(player).toBeUndefined();
   });
 });
 
@@ -286,8 +296,16 @@ describe('Batch Operations', () => {
         .bind('player1', roomId, 'red', 1, timestamp)
     ]);
     
-    // In real implementation, we would verify all operations
-    expect(true).toBe(true);
+    const room = await db.prepare('SELECT * FROM rooms WHERE id = ?')
+      .bind(roomId).first();
+    const gameState = await db.prepare('SELECT * FROM game_state WHERE room_id = ?')
+      .bind(roomId).first();
+    const player = await db.prepare('SELECT * FROM players WHERE id = ?')
+      .bind('player1').first();
+    
+    expect(room).toBeDefined();
+    expect(gameState).toBeDefined();
+    expect(player).toBeDefined();
   });
 
   it('should cleanup room and related data', async () => {

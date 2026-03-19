@@ -1,64 +1,118 @@
 // 全局中间件 — 确保数据库表已初始化 & 概率性清理过期房间
 
 // Workers 实例可能随时回收，模块级缓存仅用于同一实例内的多次请求优化
+// Use atomic initialization with a promise to prevent race condition
 let dbInitialized = false;
+let dbInitializationPromise = null;
+let dbInitRetryCount = 0;
+const MAX_DB_INIT_RETRIES = 3;
+const DB_INIT_RETRY_DELAY = 1000; // 1 second
 
 const STALE_ROOM_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
-async function initializeDatabase(db) {
-  if (dbInitialized) return;
+// Time-based cleanup scheduling
+let lastCleanupTime = 0;
+const CLEANUP_INTERVAL = 2 * 60 * 1000; // Cleanup every 2 minutes
 
-  try {
-    await db.batch([
-      db.prepare(`
-        CREATE TABLE IF NOT EXISTS rooms (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL UNIQUE,
-          created_at INTEGER NOT NULL,
-          red_player_id TEXT,
-          black_player_id TEXT,
-          status TEXT DEFAULT 'waiting'
-        )
-      `),
-      db.prepare(`
-        CREATE TABLE IF NOT EXISTS game_state (
-          room_id TEXT PRIMARY KEY,
-          board TEXT NOT NULL,
-          current_turn TEXT NOT NULL,
-          last_move TEXT,
-          move_count INTEGER DEFAULT 0,
-          status TEXT DEFAULT 'waiting',
-          winner TEXT,
-          updated_at INTEGER NOT NULL,
-          FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
-        )
-      `),
-      db.prepare(`
-        CREATE TABLE IF NOT EXISTS players (
-          id TEXT PRIMARY KEY,
-          room_id TEXT NOT NULL,
-          color TEXT NOT NULL,
-          name TEXT DEFAULT 'Player',
-          connected INTEGER DEFAULT 1,
-          last_seen INTEGER NOT NULL,
-          FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
-        )
-      `),
-      db.prepare('CREATE INDEX IF NOT EXISTS idx_rooms_name ON rooms(name)'),
-      db.prepare('CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status)'),
-      db.prepare('CREATE INDEX IF NOT EXISTS idx_players_room_id ON players(room_id)'),
-      db.prepare('CREATE INDEX IF NOT EXISTS idx_game_state_updated ON game_state(updated_at)')
-    ]);
-    dbInitialized = true;
-  } catch (error) {
-    // 初始化失败不设置缓存，下次请求会重试
-    console.error('[Middleware] DB init error:', error);
+async function initializeDatabase(db) {
+  // If already initialized, return immediately
+  if (dbInitialized) return;
+  
+  // If initialization is in progress, wait for it to complete
+  if (dbInitializationPromise) {
+    await dbInitializationPromise;
+    return;
   }
+
+  // Create initialization promise to prevent concurrent initializations
+  dbInitializationPromise = (async () => {
+    try {
+      await db.batch([
+        db.prepare(`
+          CREATE TABLE IF NOT EXISTS rooms (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL,
+            red_player_id TEXT,
+            black_player_id TEXT,
+            status TEXT DEFAULT 'waiting'
+          )
+        `),
+        db.prepare(`
+          CREATE TABLE IF NOT EXISTS game_state (
+            room_id TEXT PRIMARY KEY,
+            board TEXT NOT NULL,
+            current_turn TEXT NOT NULL,
+            last_move TEXT,
+            move_count INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'waiting',
+            winner TEXT,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+          )
+        `),
+        db.prepare(`
+          CREATE TABLE IF NOT EXISTS players (
+            id TEXT PRIMARY KEY,
+            room_id TEXT NOT NULL,
+            color TEXT NOT NULL,
+            name TEXT DEFAULT 'Player',
+            connected INTEGER DEFAULT 1,
+            last_seen INTEGER NOT NULL,
+            FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+          )
+        `),
+        db.prepare('CREATE INDEX IF NOT EXISTS idx_rooms_name ON rooms(name)'),
+        db.prepare('CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status)'),
+        db.prepare('CREATE INDEX IF NOT EXISTS idx_players_room_id ON players(room_id)'),
+        db.prepare('CREATE INDEX IF NOT EXISTS idx_game_state_updated ON game_state(updated_at)')
+      ]);
+      dbInitialized = true;
+      dbInitRetryCount = 0; // Reset retry count on success
+    } catch (error) {
+      // 初始化失败不设置缓存，下次请求会重试
+      console.error('[Middleware] DB init error:', error);
+      
+      // Implement backoff and retry logic
+      dbInitRetryCount++;
+      if (dbInitRetryCount < MAX_DB_INIT_RETRIES) {
+        console.warn(`[Middleware] Retrying DB initialization (${dbInitRetryCount}/${MAX_DB_INIT_RETRIES}) in ${DB_INIT_RETRY_DELAY}ms`);
+        await new Promise(resolve => setTimeout(resolve, DB_INIT_RETRY_DELAY));
+        
+        // Reset promise to allow retry
+        dbInitializationPromise = null;
+        
+        // Retry initialization
+        await initializeDatabase(db);
+      } else {
+        console.error(`[Middleware] DB initialization failed after ${MAX_DB_INIT_RETRIES} attempts`);
+        // Reset promise to allow future retries after some time
+        dbInitializationPromise = null;
+        dbInitRetryCount = 0;
+        throw error;
+      }
+    } finally {
+      // Clear the promise reference once complete (success or failure)
+      if (dbInitialized) {
+        dbInitializationPromise = null;
+      }
+    }
+  })();
+
+  await dbInitializationPromise;
 }
 
 async function cleanupAllStaleRooms(db) {
+  const now = Date.now();
+  
+  // Check if enough time has passed since last cleanup
+  if (now - lastCleanupTime < CLEANUP_INTERVAL) {
+    return;
+  }
+  
+  lastCleanupTime = now;
+  
   try {
-    const now = Date.now();
     const cutoff = now - STALE_ROOM_TIMEOUT;
 
     // Find rooms where ALL players are disconnected AND inactive beyond timeout,
@@ -71,11 +125,21 @@ async function cleanupAllStaleRooms(db) {
       )
     `).bind(cutoff).all();
 
-    const roomIds = (staleRooms.results || []).map(r => r.id);
+    // Add null/undefined checks for staleRooms.results
+    if (!staleRooms || !staleRooms.results || !Array.isArray(staleRooms.results)) {
+      console.warn('[Middleware] No stale rooms found or invalid query result');
+      return;
+    }
+
+    const roomIds = staleRooms.results.map(r => r.id);
     if (roomIds.length === 0) return;
 
     // Batch delete in chunks to stay within D1 limits
-    // Added error handling for individual deletions
+    // 使用单个事务确保原子性，防止竞态条件
+    // 添加错误处理确保部分失败不会影响其他清理操作
+    let successCount = 0;
+    let failureCount = 0;
+    
     for (const roomId of roomIds) {
       try {
         await db.batch([
@@ -83,12 +147,19 @@ async function cleanupAllStaleRooms(db) {
           db.prepare('DELETE FROM game_state WHERE room_id = ?').bind(roomId),
           db.prepare('DELETE FROM rooms WHERE id = ?').bind(roomId)
         ]);
+        successCount++;
       } catch (deleteError) {
+        failureCount++;
         console.error(`[Middleware] Failed to delete room ${roomId}:`, deleteError);
       }
     }
 
-    console.log(`[Middleware] Cleaned up ${roomIds.length} stale room(s)`);
+    console.log(`[Middleware] Cleaned up ${successCount} stale room(s) successfully, ${failureCount} failed`);
+    
+    // Alert on high failure rate
+    if (failureCount > 0 && failureCount / roomIds.length > 0.5) {
+      console.error(`[Middleware] ALERT: High cleanup failure rate (${failureCount}/${roomIds.length})`);
+    }
   } catch (error) {
     // Never let cleanup failure affect normal requests
     console.error('[Middleware] Stale room cleanup error:', error);
@@ -101,22 +172,42 @@ export async function onRequest(context) {
   if (env.DB) {
     await initializeDatabase(env.DB);
 
-    // ~10% chance to trigger global stale room cleanup per request
-    if (Math.random() < 0.1) {
-      context.waitUntil(cleanupAllStaleRooms(env.DB));
-    }
+    // Use time-based cleanup scheduling instead of probability
+    context.waitUntil(cleanupAllStaleRooms(env.DB));
   }
 
   const isApiRequest = context.request.url.includes('/api/');
 
   // 对 API 的 OPTIONS 预检请求，直接返回 CORS 头，不再执行后续路由
   if (isApiRequest && context.request.method === 'OPTIONS') {
+    // Restrict CORS to specific origins for better security
+    const allowedOrigins = [
+      // Add your production domains here
+      // 'https://your-production-domain.com',
+      // 'https://your-staging-domain.com',
+      // For local development only
+      'http://localhost:*',
+      'http://127.0.0.1:*'
+    ];
+    
+    const origin = context.request.headers.get('Origin') || '';
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (allowed.endsWith(':*')) {
+        const prefix = allowed.slice(0, -2);
+        return origin.startsWith(prefix);
+      }
+      return origin === allowed;
+    });
+    
+    const corsOrigin = isAllowed ? origin : '';
+    
     return new Response(null, {
       status: 204,
       headers: {
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': corsOrigin,
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Max-Age': '86400' // 24 hours
       }
     });
   }
@@ -125,10 +216,32 @@ export async function onRequest(context) {
 
   // 为 API 响应添加 CORS headers
   if (isApiRequest) {
+    // Restrict CORS to specific origins for better security
+    const allowedOrigins = [
+      // Add your production domains here
+      // 'https://your-production-domain.com',
+      // 'https://your-staging-domain.com',
+      // For local development only
+      'http://localhost:*',
+      'http://127.0.0.1:*'
+    ];
+    
+    const origin = context.request.headers.get('Origin') || '';
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (allowed.endsWith(':*')) {
+        const prefix = allowed.slice(0, -2);
+        return origin.startsWith(prefix);
+      }
+      return origin === allowed;
+    });
+    
+    const corsOrigin = isAllowed ? origin : '';
+    
     const headers = new Headers(response.headers);
-    headers.set('Access-Control-Allow-Origin', '*');
+    headers.set('Access-Control-Allow-Origin', corsOrigin);
     headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     headers.set('Access-Control-Allow-Headers', 'Content-Type');
+    headers.set('Access-Control-Max-Age', '86400'); // 24 hours
 
     return new Response(response.body, {
       status: response.status,

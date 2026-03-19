@@ -1,4 +1,3 @@
-
 // Heartbeat and Timeout Unit Tests
 // Tests for heartbeat timing, connection timeout, and dead connection detection
 
@@ -147,10 +146,18 @@ describe('Heartbeat Timing Constants', () => {
 describe('Server-side Heartbeat Management', () => {
   let manager;
   let ws;
+  let mockDateNow;
 
   beforeEach(() => {
     manager = new ServerHeartbeatManager();
     ws = new MockWebSocket('ws://localhost/ws');
+    
+    // Mock Date.now() to prevent flaky tests
+    mockDateNow = vi.spyOn(Date, 'now').mockImplementation(() => 1000000000000);
+  });
+
+  afterEach(() => {
+    mockDateNow.mockRestore();
   });
 
   it('should track new connections', () => {
@@ -314,9 +321,16 @@ describe('Connection Timeout Triggers Cleanup', () => {
 
 describe('Missed Heartbeat Counting', () => {
   let manager;
+  let mockDateNow;
 
   beforeEach(() => {
     manager = new ClientHeartbeatManager();
+    // Mock Date.now() to prevent flaky tests
+    mockDateNow = vi.spyOn(Date, 'now').mockImplementation(() => 1000000000000);
+  });
+
+  afterEach(() => {
+    mockDateNow.mockRestore();
   });
 
   it('should count missed heartbeats incrementally', () => {

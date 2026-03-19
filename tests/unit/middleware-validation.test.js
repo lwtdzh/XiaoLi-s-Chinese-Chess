@@ -1,4 +1,3 @@
-
 // Middleware Validation Unit Tests
 // Tests for server-side validation logic from _middleware.js
 // Tests the bug fixes: input validation, optimistic locking, piece/turn validation
@@ -411,5 +410,6 @@ describe('Database Mock Integration', () => {
       .bind(roomId).first();
     
     expect(state).toBeDefined();
+    expect(state.move_count).toBe(5);
   });
 });

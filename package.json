@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "description": "Chinese Chess game with multiplayer support on Cloudflare Pages",
   "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -17,6 +20,7 @@
     "deploy": "npm run build && wrangler pages deploy public",
     "clean": "rm -rf public"
   },
+  "dependencies": {},
   "devDependencies": {
     "vite": "^5.0.0",
     "vitest": "^1.0.0",

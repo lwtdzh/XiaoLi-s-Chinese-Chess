@@ -1,11 +1,47 @@
 // GET /api/rooms/:id/state?since=<timestamp> — 轮询游戏状态
 
+// Rate limiting for state polling
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 60; // Max 60 polls per minute per IP
+
+// Simple in-memory rate limiter (for production, consider using KV or D1)
+const rateLimitStore = new Map();
+
+function checkRateLimit(clientIp) {
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW;
+  
+  let requests = rateLimitStore.get(clientIp) || [];
+  
+  // Filter out requests outside the time window
+  requests = requests.filter(timestamp => timestamp > windowStart);
+  
+  if (requests.length >= RATE_LIMIT_MAX_REQUESTS) {
+    return false;
+  }
+  
+  // Add current request
+  requests.push(now);
+  rateLimitStore.set(clientIp, requests);
+  
+  return true;
+}
+
 export async function onRequestGet(context) {
   const { env, params, request } = context;
   const db = env.DB;
   const roomId = params.id;
 
   try {
+    // Check rate limit based on client IP
+    const clientIp = request.headers.get('CF-Connecting-IP') || 
+                    request.headers.get('X-Forwarded-For')?.split(',')[0].trim() || 
+                    'unknown';
+    
+    if (!checkRateLimit(clientIp)) {
+      return Response.json({ error: '轮询状态过于频繁，请稍后重试' }, { status: 429 });
+    }
+    
     const url = new URL(request.url);
     const since = parseInt(url.searchParams.get('since') || '0', 10);
     const playerId = url.searchParams.get('playerId') || '';

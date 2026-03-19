@@ -1,11 +1,47 @@
 // POST /api/rooms/:id/leave — 离开房间
 
+// Rate limiting for room leaving
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 20; // Max 20 leaves per minute per IP
+
+// Simple in-memory rate limiter (for production, consider using KV or D1)
+const rateLimitStore = new Map();
+
+function checkRateLimit(clientIp) {
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW;
+  
+  let requests = rateLimitStore.get(clientIp) || [];
+  
+  // Filter out requests outside the time window
+  requests = requests.filter(timestamp => timestamp > windowStart);
+  
+  if (requests.length >= RATE_LIMIT_MAX_REQUESTS) {
+    return false;
+  }
+  
+  // Add current request
+  requests.push(now);
+  rateLimitStore.set(clientIp, requests);
+  
+  return true;
+}
+
 export async function onRequestPost(context) {
-  const { env, params } = context;
+  const { env, params, request } = context;
   const db = env.DB;
   const roomId = params.id;
 
   try {
+    // Check rate limit based on client IP
+    const clientIp = request.headers.get('CF-Connecting-IP') || 
+                    request.headers.get('X-Forwarded-For')?.split(',')[0].trim() || 
+                    'unknown';
+    
+    if (!checkRateLimit(clientIp)) {
+      return Response.json({ error: '离开房间过于频繁，请稍后重试' }, { status: 429 });
+    }
+    
     const body = await context.request.json();
     const { playerId } = body;
 
@@ -16,6 +52,11 @@ export async function onRequestPost(context) {
     // Validate playerId format to prevent potential injection
     if (!/^[a-f0-9-]{36}$/.test(playerId)) {
       return Response.json({ error: '无效的 playerId 格式' }, { status: 400 });
+    }
+
+    // Validate roomId format (UUID)
+    if (!/^[a-f0-9-]{36}$/.test(roomId)) {
+      return Response.json({ error: '无效的 roomId 格式' }, { status: 400 });
     }
 
     // 获取玩家信息

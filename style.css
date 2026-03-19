@@ -149,8 +149,20 @@ button:disabled {
     background: #c41e3a;
 }
 
+/* High contrast mode support for accessibility */
+.color-indicator.red.high-contrast {
+    background: #ff0000;
+    border: 3px solid #000;
+}
+
 .color-indicator.black {
     background: #1a1a1a;
+}
+
+/* High contrast mode support for accessibility */
+.color-indicator.black.high-contrast {
+    background: #000000;
+    border: 3px solid #fff;
 }
 
 .game-status {
@@ -331,9 +343,21 @@ button:disabled {
 }
 
 @keyframes pulse {
-    0% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4); }
-    70% { box-shadow: 0 0 0 10px rgba(255, 0, 0, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0); }
+    0% { 
+        box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
+        transform: scale(1);
+        opacity: 1;
+    }
+    70% { 
+        box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
+        transform: scale(1.05);
+        opacity: 0.8;
+    }
+    100% { 
+        box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+        transform: scale(1);
+        opacity: 1;
+    }
 }
 
 /* ======== Responsive ======== */
@@ -372,4 +396,30 @@ button:disabled {
     .room-id-box code {
         font-size: 10px;
     }
+
+    /* Scale chess board for mobile devices */
+    .board-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #chessBoard {
+        transform: scale(0.85);
+        transform-origin: top center;
+        margin: 0 -30px;
+    }
+
+    /* Adjust piece sizes for better touch interaction */
+    .chess-piece {
+        width: 44px;
+        height: 44px;
+        font-size: 22px;
+    }
+
+    .valid-move {
+        width: 22px;
+        height: 22px;
+    }
+
+    /* Optimize for mobile viewport - using meta tag in HTML instead of @viewport */
 }

@@ -366,6 +366,27 @@ describe('Chess Rules - Jiang (King)', () => {
     expect(moves).toContainEqual({ row: 0, col: 4 });
   });
 
+  it('should not apply flying general rule when opponent king is outside palace', () => {
+    // Red king in palace, black king outside palace (moved out illegally)
+    board[9][4] = { type: 'jiang', color: 'red', name: '帥' };
+    board[3][4] = { type: 'jiang', color: 'black', name: '將' }; // Black king outside palace
+    
+    const moves = ChessRules.getJiangMoves(9, 4, 'red', board);
+    
+    // Should not be able to capture because black king is outside palace
+    expect(moves).not.toContainEqual({ row: 3, col: 4 });
+  });
+
+  it('should not apply flying general rule when kings are in different columns', () => {
+    board[9][4] = { type: 'jiang', color: 'red', name: '帥' };
+    board[0][3] = { type: 'jiang', color: 'black', name: '將' }; // Different column
+    
+    const moves = ChessRules.getJiangMoves(9, 4, 'red', board);
+    
+    // Should not be able to capture because kings are in different columns
+    expect(moves).not.toContainEqual({ row: 0, col: 3 });
+  });
+
   it('should not capture opponent king if blocked', () => {
     board[9][4] = { type: 'jiang', color: 'red', name: '帥' };
     board[5][4] = { type: 'zu', color: 'red', name: '兵' };

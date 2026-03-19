@@ -136,8 +136,6 @@ describe('Move Debug Tests', () => {
       
       const validMoves = getZuMoves(6, 0, pawn, board);
       
-      console.log('Red pawn at (6,0) valid moves:', validMoves);
-      
       // Red pawn should be able to move forward (row - 1)
       expect(validMoves).toContainEqual({ row: 5, col: 0 });
     });
@@ -154,7 +152,6 @@ describe('Move Debug Tests', () => {
         expect(pawn.color).toBe('red');
         
         const validMoves = getZuMoves(6, col, pawn, board);
-        console.log(`Red pawn at (6,${col}) valid moves:`, validMoves);
         
         // Should be able to move forward
         expect(validMoves.length).toBeGreaterThan(0);
@@ -174,8 +171,6 @@ describe('Move Debug Tests', () => {
       
       const validMoves = getJuMoves(9, 0, chariot, board);
       
-      console.log('Red chariot at (9,0) valid moves:', validMoves);
-      
       // Chariot should be able to move up along the left edge
       expect(validMoves.length).toBeGreaterThan(0);
       
@@ -191,8 +186,6 @@ describe('Move Debug Tests', () => {
       expect(chariot.color).toBe('red');
       
       const validMoves = getJuMoves(9, 8, chariot, board);
-      
-      console.log('Red chariot at (9,8) valid moves:', validMoves);
       
       expect(validMoves.length).toBeGreaterThan(0);
       expect(validMoves).toContainEqual({ row: 8, col: 8 });
@@ -230,11 +223,6 @@ describe('Move Debug Tests', () => {
       const validMoves = getZuMoves(fromRow, fromCol, piece, board);
       const isValid = validMoves.some(m => m.row === toRow && m.col === toCol);
       
-      console.log(`Move validation: (${fromRow},${fromCol}) -> (${toRow},${toCol})`);
-      console.log('Piece:', piece);
-      console.log('Valid moves:', validMoves);
-      console.log('Is valid:', isValid);
-      
       expect(isValid).toBe(true);
     });
     
@@ -249,11 +237,6 @@ describe('Move Debug Tests', () => {
       
       const validMoves = getJuMoves(fromRow, fromCol, piece, board);
       const isValid = validMoves.some(m => m.row === toRow && m.col === toCol);
-      
-      console.log(`Move validation: (${fromRow},${fromCol}) -> (${toRow},${toCol})`);
-      console.log('Piece:', piece);
-      console.log('Valid moves:', validMoves);
-      console.log('Is valid:', isValid);
       
       expect(isValid).toBe(true);
     });

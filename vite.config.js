@@ -6,12 +6,17 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
-      '/api': 'http://localhost:8788'
+      '/api': {
+        target: 'http://localhost:8788',
+        changeOrigin: true,
+        secure: false
+      }
     }
   },
   build: {
     outDir: 'public',
     emptyOutDir: true,
+    sourcemap: true,
     rollupOptions: {
       output: {
         entryFileNames: 'assets/[name]-[hash].js',

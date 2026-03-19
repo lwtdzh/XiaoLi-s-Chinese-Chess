@@ -26,9 +26,34 @@ class ChineseChess {
         // Event listener tracking for cleanup
         this.eventListeners = [];
 
+        // Board state tracking for getRawMoves and isCheckmate
+        this._rawMovesBoardStack = [];
+        this._checkmateBoardStack = [];
+
         // Initialize
         this.initUI();
         this.restoreSession();
+    }
+
+    // ========================================
+    // Helper Functions
+    // ========================================
+
+    /**
+     * Efficient deep copy of the board (10x9 array)
+     * Faster than JSON.parse(JSON.stringify()) for this specific structure
+     */
+    deepCopyBoard(board) {
+        const newBoard = Array(10).fill(null).map(() => Array(9).fill(null));
+        for (let row = 0; row < 10; row++) {
+            for (let col = 0; col < 9; col++) {
+                const piece = board[row][col];
+                if (piece) {
+                    newBoard[row][col] = { ...piece };
+                }
+            }
+        }
+        return newBoard;
     }
 
     // ========================================
@@ -44,7 +69,10 @@ class ChineseChess {
                     color: this.color,
                     roomName: this.roomName
                 }));
-            } catch (e) { /* ignore */ }
+            } catch (e) {
+                console.error('[Session Save] Error:', e);
+                // Ignore sessionStorage errors (e.g., quota exceeded, private browsing mode)
+            }
         }
     }
 
@@ -53,7 +81,23 @@ class ChineseChess {
             const saved = sessionStorage.getItem('chess_session');
             if (!saved) return;
             const session = JSON.parse(saved);
+            
+            // Validate session fields before use
+            if (!session || 
+                typeof session.roomId !== 'string' || !session.roomId ||
+                typeof session.playerId !== 'string' || !session.playerId ||
+                (session.color !== 'red' && session.color !== 'black')) {
+                console.error('[Session Restore] Invalid session data:', session);
+                sessionStorage.removeItem('chess_session');
+                return;
+            }
+            
             if (session.roomId && session.playerId) {
+                // 检查是否已经在房间中，避免重复恢复导致的竞态条件
+                if (this.roomId) {
+                    console.log('[Session Restore] Already in room, skipping restore:', this.roomId);
+                    return;
+                }
                 this.showMessage('⏳ 正在恢复上次游戏...');
                 // 避免在初始化阶段重复触发 join/poll，确保只恢复一次
                 if (this._restoringSession) return;
@@ -61,7 +105,11 @@ class ChineseChess {
                 this.rejoinRoom(session)
                     .catch((e) => {
                         console.error('[Session Restore] Error:', e);
-                        sessionStorage.removeItem('chess_session');
+                        try {
+                            sessionStorage.removeItem('chess_session');
+                        } catch (removeError) {
+                            console.error('[Session Remove] Error:', removeError);
+                        }
                     })
                     .finally(() => {
                         this._restoringSession = false;
@@ -188,10 +236,28 @@ class ChineseChess {
         const createBtn = document.getElementById('createRoomBtn');
         const joinBtn = document.getElementById('joinRoomBtn');
         const leaveBtn = document.getElementById('leaveRoomBtn');
+        const roomIdDisplay = document.getElementById('roomIdDisplay');
+        const chessBoard = document.getElementById('chessBoard');
 
         if (createBtn) this.addTrackedEventListener(createBtn, 'click', () => this.createRoom());
         if (joinBtn) this.addTrackedEventListener(joinBtn, 'click', () => this.joinRoom());
         if (leaveBtn) this.addTrackedEventListener(leaveBtn, 'click', () => this.leaveRoom());
+        
+        // Add room ID copy functionality
+        if (roomIdDisplay) {
+            this.addTrackedEventListener(roomIdDisplay, 'click', () => this.copyRoomId());
+            this.addTrackedEventListener(roomIdDisplay, 'keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    this.copyRoomId();
+                }
+            });
+        }
+        
+        // Add keyboard navigation support for chess board
+        if (chessBoard) {
+            this.addTrackedEventListener(chessBoard, 'keydown', (e) => this.handleKeyboardNavigation(e));
+        }
     }
 
     // ========================================
@@ -214,7 +280,12 @@ class ChineseChess {
         // 移除之前棋盘上所有棋子和合法走法标记的事件监听器
         // 避免在频繁渲染时累积监听器导致内存泄漏
         this.eventListeners = this.eventListeners.filter(({ element }) => {
-            return !boardElement.contains(element);
+            if (boardElement.contains(element)) {
+                element.removeEventListener('click', element._clickHandler);
+                element.removeEventListener('keydown', element._keydownHandler);
+                return false;
+            }
+            return true;
         });
 
         for (let row = 0; row < 10; row++) {
@@ -238,7 +309,9 @@ class ChineseChess {
                         el.classList.add('selected');
                     }
 
-                    this.addTrackedEventListener(el, 'click', () => this.handlePieceClick(row, col));
+                    const clickHandler = () => this.handlePieceClick(row, col);
+                    el._clickHandler = clickHandler;
+                    this.addTrackedEventListener(el, 'click', clickHandler);
                     boardElement.appendChild(el);
                 }
             }
@@ -252,7 +325,9 @@ class ChineseChess {
             dot.style.top = `${move.row * cellSize + offsetY}px`;
             dot.setAttribute('role', 'button');
             dot.setAttribute('aria-label', `移动到第${move.row + 1}行第${move.col + 1}列`);
-            this.addTrackedEventListener(dot, 'click', () => this.handleMoveClick(move.row, move.col));
+            const clickHandler = () => this.handleMoveClick(move.row, move.col);
+            dot._clickHandler = clickHandler;
+            this.addTrackedEventListener(dot, 'click', clickHandler);
             boardElement.appendChild(dot);
         });
 
@@ -367,8 +442,15 @@ class ChineseChess {
         const piece = this.board[fromRow][fromCol];
         const capturedPiece = this.board[toRow][toCol];
 
+        // Validation: Check if attempting to capture king (illegal move in Chinese Chess)
+        if (capturedPiece && capturedPiece.type === 'jiang' && !this.gameOver) {
+            console.warn('[makeMove] Attempting to capture king directly is illegal');
+            this.showMessage('⚠️ 不能直接吃掉将/帅');
+            return;
+        }
+
         // 保存状态用于回滚
-        const previousBoard = JSON.parse(JSON.stringify(this.board));
+        const previousBoard = this.deepCopyBoard(this.board);
         const previousTurn = this.currentPlayer;
         const previousCheck = this.isInCheck;
 
@@ -417,16 +499,14 @@ class ChineseChess {
                 if (res.status === 409 && err && err.code === 'MOVE_CONFLICT') {
                     // 并发冲突：不把它当作"走子失败"，而是提示并尽快通过轮询拉取最新状态
                     this.showMessage('⚠️ 对局已更新，请稍候同步...');
-                    // 立即触发一次轮询以获取最新状态
-                    await this.pollState();
                     // 回滚本地状态，使用之前保存的旧状态而不是乐观更新后的状态
-                    this.moveCount--;
-                    this.board = previousBoard;
-                    this.currentPlayer = previousTurn;
-                    this.isInCheck = previousCheck;
-                    this.gameOver = false;
-                    this.renderBoard();
-                    this.updateTurnIndicator();
+                    this.rollbackMove(previousBoard, previousTurn, previousCheck);
+                    // 立即触发一次轮询以获取最新状态，添加错误处理
+                    try {
+                        await this.pollState();
+                    } catch (pollError) {
+                        console.error('[Move Conflict] Poll error:', pollError);
+                    }
                     throw new Error('MOVE_CONFLICT');
                 }
                 throw new Error(err.error || '走子失败');
@@ -450,15 +530,23 @@ class ChineseChess {
             }
 
             // 回滚
-            this.board = previousBoard;
-            this.currentPlayer = previousTurn;
-            this.isInCheck = previousCheck;
-            this.gameOver = false;
-            this.moveCount--;
-            this.renderBoard();
-            this.updateTurnIndicator();
+            this.rollbackMove(previousBoard, previousTurn, previousCheck);
             this.showMessage(`❌ ${error.message}`);
         }
+    }
+
+    rollbackMove(previousBoard, previousTurn, previousCheck) {
+        this.board = previousBoard;
+        this.currentPlayer = previousTurn;
+        this.isInCheck = previousCheck;
+        this.gameOver = false;
+        this.moveCount--;
+        // 清除选中状态，避免状态不一致
+        this.selectedPiece = null;
+        this.selectedPosition = null;
+        this.validMoves = [];
+        this.renderBoard();
+        this.updateTurnIndicator();
     }
 
     // ========================================
@@ -480,7 +568,7 @@ class ChineseChess {
 
         // 排除会导致自己被将军的走法
         return moves.filter(move => {
-            const testBoard = JSON.parse(JSON.stringify(this.board));
+            const testBoard = this.deepCopyBoard(this.board);
             testBoard[move.row][move.col] = testBoard[row][col];
             testBoard[row][col] = null;
             return !this.isKingInCheck(testBoard, piece.color);
@@ -738,6 +826,13 @@ class ChineseChess {
         // 注意：这里为了复用各棋子走法生成逻辑，会临时切换 this.board。
         // 为避免异常/重入导致 this.board 未能恢复，使用 try/finally + 栈式恢复。
         if (!this._rawMovesBoardStack) this._rawMovesBoardStack = [];
+        
+        // 添加栈大小限制，防止无限递归导致的内存溢出
+        const MAX_STACK_SIZE = 100;
+        if (this._rawMovesBoardStack.length >= MAX_STACK_SIZE) {
+            console.error('[getRawMoves] Stack overflow detected, max size:', MAX_STACK_SIZE);
+            return [];
+        }
 
         this._rawMovesBoardStack.push(this.board);
         this.board = board;
@@ -753,30 +848,107 @@ class ChineseChess {
                 case 'pao': moves = this.getPaoMoves(row, col, piece.color); break;
                 case 'zu': moves = this.getZuMoves(row, col, piece.color); break;
             }
+            
+            // 添加老将照面（飞将）规则检查：过滤掉会导致两将直接对面的走法
+            if (moves.length > 0) {
+                const oppColor = piece.color === 'red' ? 'black' : 'red';
+                const oppKing = this.findKing(board, oppColor);
+                if (oppKing) {
+                    moves = moves.filter(move => {
+                        // 临时模拟走法
+                        const originalTarget = board[move.row][move.col];
+                        board[move.row][move.col] = { ...piece };
+                        board[row][col] = null;
+                        
+                        // 检查走法后是否会导致两将对面
+                        const king = this.findKing(board, piece.color);
+                        let kingsFacing = false;
+                        if (king && king.col === oppKing.col) {
+                            let blocked = false;
+                            const sr = Math.min(king.row, oppKing.row);
+                            const er = Math.max(king.row, oppKing.row);
+                            for (let r = sr + 1; r < er; r++) {
+                                if (board[r][king.col]) { blocked = true; break; }
+                            }
+                            if (!blocked) kingsFacing = true;
+                        }
+                        
+                        // 恢复棋盘
+                        board[row][col] = piece;
+                        board[move.row][move.col] = originalTarget;
+                        
+                        return !kingsFacing;
+                    });
+                }
+            }
+            
             return moves;
         } finally {
-            const previous = this._rawMovesBoardStack.pop();
-            this.board = previous;
+            try {
+                const previous = this._rawMovesBoardStack.pop();
+                this.board = previous;
+            } catch (e) {
+                console.error('[getRawMoves] Stack restoration failed:', e);
+                // 尝试恢复到初始状态
+                this.board = this._rawMovesBoardStack.length > 0 
+                    ? this._rawMovesBoardStack[0] 
+                    : this.initializeBoard();
+            }
         }
     }
 
     isCheckmate(board, color) {
-        for (let row = 0; row < 10; row++) {
-            for (let col = 0; col < 9; col++) {
-                const piece = board[row][col];
-                if (piece && piece.color === color) {
-                    const originalBoard = this.board;
-                    try {
-                        this.board = board;
+        // 使用栈模式，与 getRawMoves 保持一致，避免 this.board 状态混乱
+        if (!this._checkmateBoardStack) this._checkmateBoardStack = [];
+        
+        this._checkmateBoardStack.push(this.board);
+        this.board = board;
+        
+        try {
+            // Check for stalemate: if not in check and no legal moves, it's stalemate
+            const opponentColor = color === 'red' ? 'black' : 'red';
+            const inCheck = this.isKingInCheck(board, color);
+            
+            let hasLegalMoves = false;
+            for (let row = 0; row < 10; row++) {
+                for (let col = 0; col < 9; col++) {
+                    const piece = board[row][col];
+                    if (piece && piece.color === color) {
                         const moves = this.getValidMoves(row, col, piece);
-                        if (moves.length > 0) return false;
-                    } finally {
-                        this.board = originalBoard;
+                        if (moves.length > 0) {
+                            hasLegalMoves = true;
+                            break;
+                        }
                     }
                 }
+                if (hasLegalMoves) break;
+            }
+            
+            if (!hasLegalMoves) {
+                if (!inCheck) {
+                    // Stalemate detected - no legal moves but not in check
+                    console.warn('[isCheckmate] Stalemate detected for', color);
+                    this.showMessage('🤝 逼和！双方平局');
+                    this.gameOver = true;
+                    return true;
+                }
+                // Checkmate - no legal moves and in check
+                return true;
+            }
+            
+            return false;
+        } finally {
+            try {
+                const previous = this._checkmateBoardStack.pop();
+                this.board = previous;
+            } catch (e) {
+                console.error('[isCheckmate] Stack restoration failed:', e);
+                // 尝试恢复到初始状态
+                this.board = this._checkmateBoardStack.length > 0 
+                    ? this._checkmateBoardStack[0] 
+                    : this.initializeBoard();
             }
         }
-        return true;
     }
 
     // ========================================
@@ -788,9 +960,16 @@ class ChineseChess {
 
         if (state.board && Array.isArray(state.board)) {
             // 防御：服务端 board 必须是 10x9，否则可能导致后续访问越界/崩溃
-            const isValidShape =
-                state.board.length === 10 &&
-                state.board.every(r => Array.isArray(r) && r.length === 9);
+            // Combine checks into single iteration for efficiency
+            let isValidShape = state.board.length === 10;
+            if (isValidShape) {
+                for (let i = 0; i < state.board.length; i++) {
+                    if (!Array.isArray(state.board[i]) || state.board[i].length !== 9) {
+                        isValidShape = false;
+                        break;
+                    }
+                }
+            }
 
             if (isValidShape) {
                 this.board = this.boardFromServerFormat(state.board);
@@ -812,6 +991,12 @@ class ChineseChess {
     }
 
     boardFromServerFormat(serverBoard) {
+        // Add null/undefined check for serverBoard
+        if (!serverBoard || !Array.isArray(serverBoard)) {
+            console.error('[boardFromServerFormat] Invalid serverBoard:', serverBoard);
+            return this.initializeBoard();
+        }
+
         const pieceMap = {
             'R': { type: 'ju', color: 'red', name: '車' },
             'N': { type: 'ma', color: 'red', name: '馬' },
@@ -835,7 +1020,12 @@ class ChineseChess {
                 const code = serverBoard[row]?.[col];
                 if (code && code !== '.') {
                     const piece = pieceMap[code];
-                    if (piece) board[row][col] = { ...piece };
+                    // Validate piece structure before adding to board
+                    if (piece && piece.type && piece.color && piece.name) {
+                        board[row][col] = { ...piece };
+                    } else {
+                        console.error(`[boardFromServerFormat] Invalid piece structure at [${row},${col}]:`, piece);
+                    }
                 }
             }
         }
@@ -865,11 +1055,21 @@ class ChineseChess {
     async pollState() {
         if (this._leavingRoom) return;
         if (!this.roomId || !this.playerId) return;
+        
+        // Add check for gameOver to prevent unnecessary polling after game ends
+        if (this.gameOver) return;
 
         try {
+            // Add timeout handling with AbortController
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
             const res = await fetch(
-                `/api/rooms/${this.roomId}/state?since=${this.lastUpdatedAt}&playerId=${this.playerId}`
+                `/api/rooms/${this.roomId}/state?since=${this.lastUpdatedAt}&playerId=${this.playerId}`,
+                { signal: controller.signal }
             );
+            
+            clearTimeout(timeoutId);
 
             if (!res.ok) return;
 
@@ -900,13 +1100,21 @@ class ChineseChess {
                 }
             }
         } catch (error) {
-            console.error('[Poll] Error:', error);
+            // Handle AbortError (timeout) separately from other errors
+            if (error.name === 'AbortError') {
+                console.warn('[Poll] Timeout after 10 seconds, will retry on next interval');
+            } else {
+                console.error('[Poll] Error:', error);
+            }
         }
     }
 
     updateOpponentStatus(data) {
         const opponentEl = document.getElementById('opponentName');
-        if (!opponentEl) return;
+        if (!opponentEl) {
+            console.warn('[updateOpponentStatus] Element "opponentName" not found');
+            return;
+        }
 
         const players = data.players || [];
         const opponent = players.find(p => p.color !== this.color);
@@ -952,6 +1160,13 @@ class ChineseChess {
             }
 
             const data = await res.json();
+            
+            // Validate API response
+            if (!data || !data.roomId || !data.playerId || !data.color) {
+                console.error('[createRoom] Invalid API response:', data);
+                throw new Error('服务器返回数据无效');
+            }
+            
             this.roomId = data.roomId;
             this.playerId = data.playerId;
             this.color = data.color;
@@ -1006,6 +1221,13 @@ class ChineseChess {
             }
 
             const data = await res.json();
+            
+            // Validate join response
+            if (!data || !data.roomId || !data.playerId || !data.color) {
+                console.error('[joinRoom] Invalid join response:', data);
+                throw new Error('服务器返回数据无效');
+            }
+            
             this.roomId = data.roomId;
             this.playerId = data.playerId;
             this.color = data.color;
@@ -1033,8 +1255,9 @@ class ChineseChess {
     }
 
     async leaveRoom() {
-        this.stopPolling();
+        // 在停止轮询前设置标志，避免竞态条件
         this._leavingRoom = true;
+        this.stopPolling();
 
         if (this.roomId && this.playerId) {
             try {
@@ -1043,7 +1266,10 @@ class ChineseChess {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ playerId: this.playerId })
                 });
-            } catch (e) { /* best effort */ }
+            } catch (e) {
+                // Log errors for debugging
+                console.error('[leaveRoom] Failed to leave room:', e);
+            }
         }
 
         sessionStorage.removeItem('chess_session');
@@ -1067,6 +1293,83 @@ class ChineseChess {
         this.lastUpdatedAt = 0;
         this.isInCheck = false;
         this.showMessage('');
+    }
+
+    copyRoomId() {
+        if (!this.roomId) return;
+        
+        try {
+            navigator.clipboard.writeText(this.roomId).then(() => {
+                this.showMessage('✅ 房间 ID 已复制到剪贴板');
+            }).catch(() => {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = this.roomId;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    this.showMessage('✅ 房间 ID 已复制到剪贴板');
+                } catch (err) {
+                    this.showMessage('❌ 复制失败，请手动复制');
+                }
+                document.body.removeChild(textArea);
+            });
+        } catch (err) {
+            this.showMessage('❌ 复制失败，请手动复制');
+        }
+    }
+
+    handleKeyboardNavigation(e) {
+        if (!this.selectedPosition || this.validMoves.length === 0) return;
+        
+        const { row, col } = this.selectedPosition;
+        let newRow = row;
+        let newCol = col;
+        
+        switch (e.key) {
+            case 'ArrowUp':
+                newRow = Math.max(0, row - 1);
+                break;
+            case 'ArrowDown':
+                newRow = Math.min(9, row + 1);
+                break;
+            case 'ArrowLeft':
+                newCol = Math.max(0, col - 1);
+                break;
+            case 'ArrowRight':
+                newCol = Math.min(8, col + 1);
+                break;
+            case 'Enter':
+            case ' ':
+                // Try to move to the first valid move
+                if (this.validMoves.length > 0) {
+                    const move = this.validMoves[0];
+                    this.handleMoveClick(move.row, move.col);
+                }
+                e.preventDefault();
+                return;
+            case 'Escape':
+                // Deselect piece
+                this.selectedPiece = null;
+                this.selectedPosition = null;
+                this.validMoves = [];
+                this.renderBoard();
+                e.preventDefault();
+                return;
+            default:
+                return;
+        }
+        
+        e.preventDefault();
+        
+        // Check if the new position is a valid move
+        const isValidMove = this.validMoves.some(move => move.row === newRow && move.col === newCol);
+        if (isValidMove) {
+            this.handleMoveClick(newRow, newCol);
+        }
     }
 
     // ========================================
@@ -1096,23 +1399,27 @@ class ChineseChess {
         const indicator = document.getElementById('turnIndicator');
         if (!indicator) return;
 
-        if (this.gameOver) {
-            indicator.textContent = '游戏结束';
-            indicator.className = 'game-over';
-        } else if (this.currentPlayer === this.color) {
-            indicator.textContent = this.isInCheck ? '⚠️ 你的回合（将军！）' : '你的回合';
-            indicator.className = this.isInCheck ? 'your-turn check' : 'your-turn';
-        } else {
-            indicator.textContent = '对手回合';
-            indicator.className = 'opponent-turn';
-        }
+        requestAnimationFrame(() => {
+            if (this.gameOver) {
+                indicator.textContent = '游戏结束';
+                indicator.className = 'game-over';
+            } else if (this.currentPlayer === this.color) {
+                indicator.textContent = this.isInCheck ? '⚠️ 你的回合（将军！）' : '你的回合';
+                indicator.className = this.isInCheck ? 'your-turn check' : 'your-turn';
+            } else {
+                indicator.textContent = '对手回合';
+                indicator.className = 'opponent-turn';
+            }
+        });
     }
 
     updateRoomIdDisplay(roomId) {
         const display = document.getElementById('roomIdDisplay');
         if (display) {
-            display.textContent = roomId;
-            display.parentElement.classList.remove('hidden');
+            requestAnimationFrame(() => {
+                display.textContent = roomId;
+                display.parentElement.classList.remove('hidden');
+            });
         }
     }
 
@@ -1126,12 +1433,28 @@ class ChineseChess {
         const gameMessage = document.getElementById('gameMessage');
 
         if (lobbyMessage) {
-            lobbyMessage.textContent = message;
-            lobbyMessage.classList.toggle('hidden', !message);
+            // Force aria-live region update by temporarily removing and re-adding content
+            lobbyMessage.textContent = '';
+            lobbyMessage.setAttribute('aria-live', 'off');
+            
+            // Use setTimeout to ensure screen readers notice the change
+            setTimeout(() => {
+                lobbyMessage.textContent = message;
+                lobbyMessage.setAttribute('aria-live', 'polite');
+                lobbyMessage.classList.toggle('hidden', !message);
+            }, 10);
         }
         if (gameMessage) {
-            gameMessage.textContent = message;
-            gameMessage.classList.toggle('hidden', !message);
+            // Force aria-live region update by temporarily removing and re-adding content
+            gameMessage.textContent = '';
+            gameMessage.setAttribute('aria-live', 'off');
+            
+            // Use setTimeout to ensure screen readers notice the change
+            setTimeout(() => {
+                gameMessage.textContent = message;
+                gameMessage.setAttribute('aria-live', 'assertive');
+                gameMessage.classList.toggle('hidden', !message);
+            }, 10);
         }
     }
 }

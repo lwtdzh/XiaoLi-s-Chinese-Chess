@@ -14,7 +14,7 @@ pages_build_output_dir = "public"
 [[d1_databases]]
 binding = "DB"
 database_name = "chinachess"
-database_id = "d9f76ae4-9ad7-4ab9-a1a5-973c60a0e251"
+database_id = "${D1_DATABASE_ID}"
 
 # ============================================
 # 本地开发配置 (Local Development)

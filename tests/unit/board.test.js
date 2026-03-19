@@ -213,7 +213,7 @@ describe('Board State Validation', () => {
     const board = createInitialBoard();
     
     expect(board[0][0]).not.toBeNull();
-    expect(board[9][9 % 9]).not.toBeNull();
+    expect(board[9][8]).not.toBeNull(); // Fixed: board[9][9 % 9] -> board[9][8] for clarity
   });
 
   it('should identify piece colors correctly', () => {

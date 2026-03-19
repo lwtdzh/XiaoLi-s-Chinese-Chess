@@ -39,4 +39,6 @@ CREATE TABLE IF NOT EXISTS players (
 CREATE INDEX IF NOT EXISTS idx_rooms_name ON rooms(name);
 CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status);
 CREATE INDEX IF NOT EXISTS idx_players_room_id ON players(room_id);
+CREATE INDEX IF NOT EXISTS idx_players_connected ON players(connected);
 CREATE INDEX IF NOT EXISTS idx_game_state_updated ON game_state(updated_at);
+CREATE INDEX IF NOT EXISTS idx_game_state_status ON game_state(status);

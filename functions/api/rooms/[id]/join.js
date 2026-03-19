@@ -1,11 +1,47 @@
 // POST /api/rooms/:id/join — 加入房间
 
+// Rate limiting for room joining
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 10; // Max 10 joins per minute per IP
+
+// Simple in-memory rate limiter (for production, consider using KV or D1)
+const rateLimitStore = new Map();
+
+function checkRateLimit(clientIp) {
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW;
+  
+  let requests = rateLimitStore.get(clientIp) || [];
+  
+  // Filter out requests outside the time window
+  requests = requests.filter(timestamp => timestamp > windowStart);
+  
+  if (requests.length >= RATE_LIMIT_MAX_REQUESTS) {
+    return false;
+  }
+  
+  // Add current request
+  requests.push(now);
+  rateLimitStore.set(clientIp, requests);
+  
+  return true;
+}
+
 export async function onRequestPost(context) {
-  const { env, params } = context;
+  const { env, params, request } = context;
   const db = env.DB;
   const roomId = params.id;
 
   try {
+    // Check rate limit based on client IP
+    const clientIp = request.headers.get('CF-Connecting-IP') || 
+                    request.headers.get('X-Forwarded-For')?.split(',')[0].trim() || 
+                    'unknown';
+    
+    if (!checkRateLimit(clientIp)) {
+      return Response.json({ error: '加入房间过于频繁，请稍后重试' }, { status: 429 });
+    }
+    
     const body = await context.request.json();
 
     // Validate player name length
@@ -41,6 +77,15 @@ export async function onRequestPost(context) {
       ).bind(body.playerId, room.id).first();
 
       if (existingPlayer) {
+        // 验证外键约束：确保房间仍然存在
+        const roomExists = await db.prepare(
+          'SELECT id FROM rooms WHERE id = ?'
+        ).bind(room.id).first();
+        
+        if (!roomExists) {
+          return Response.json({ error: '房间不存在' }, { status: 404 });
+        }
+        
         // 断线重连优先：允许"踢下线并接管"
         const updateResult = await db.prepare(
           'UPDATE players SET connected = 1, last_seen = ? WHERE id = ? AND room_id = ?'
@@ -93,29 +138,69 @@ export async function onRequestPost(context) {
       return Response.json({ error: '房间已满' }, { status: 409 });
     }
 
+    // 验证外键约束：确保房间存在且有效
+    const roomValidation = await db.prepare(
+      'SELECT id, status FROM rooms WHERE id = ?'
+    ).bind(room.id).first();
+    
+    if (!roomValidation) {
+      return Response.json({ error: '房间不存在' }, { status: 404 });
+    }
+    
+    if (roomValidation.status === 'finished') {
+      return Response.json({ error: '房间已结束' }, { status: 409 });
+    }
+
     const playerId = crypto.randomUUID();
     const now = Date.now();
     let assignedColor;
 
+    // 使用事务防止竞态条件：确保颜色分配的原子性
+    // 通过条件更新确保只有一个玩家能成功获取某个颜色
     if (!room.red_player_id) {
       assignedColor = 'red';
-      await db.prepare(
-        'UPDATE rooms SET red_player_id = ? WHERE id = ?'
-      ).bind(playerId, room.id).run();
+      const result = await db.batch([
+        // 条件更新：只有当 red_player_id 为 NULL 时才更新
+        db.prepare('UPDATE rooms SET red_player_id = ? WHERE id = ? AND red_player_id IS NULL')
+          .bind(playerId, room.id),
+        // 插入玩家记录
+        db.prepare('INSERT INTO players (id, room_id, color, name, connected, last_seen) VALUES (?, ?, ?, ?, 1, ?)')
+          .bind(playerId, room.id, assignedColor, playerName, now)
+      ]);
+
+      // 验证是否成功获取红色位置（检查更新是否影响了行）
+      const updatedRoom = await db.prepare(
+        'SELECT red_player_id FROM rooms WHERE id = ?'
+      ).bind(room.id).first();
+
+      if (!updatedRoom || updatedRoom.red_player_id !== playerId) {
+        // 另一个玩家已经抢先获取了红色位置
+        return Response.json({ error: '房间已满' }, { status: 409 });
+      }
     } else {
       assignedColor = 'black';
-      await db.prepare(
-        'UPDATE rooms SET black_player_id = ?, status = ? WHERE id = ?'
-      ).bind(playerId, 'playing', room.id).run();
+      const result = await db.batch([
+        // 条件更新：只有当 black_player_id 为 NULL 时才更新
+        db.prepare('UPDATE rooms SET black_player_id = ?, status = ? WHERE id = ? AND black_player_id IS NULL')
+          .bind(playerId, 'playing', room.id),
+        // 更新游戏状态
+        db.prepare('UPDATE game_state SET status = ?, updated_at = ? WHERE room_id = ? AND status != ?')
+          .bind('playing', Date.now(), room.id, 'ended'),
+        // 插入玩家记录
+        db.prepare('INSERT INTO players (id, room_id, color, name, connected, last_seen) VALUES (?, ?, ?, ?, 1, ?)')
+          .bind(playerId, room.id, assignedColor, playerName, now)
+      ]);
 
-      await db.prepare(
-        'UPDATE game_state SET status = ?, updated_at = ? WHERE room_id = ? AND status != ?'
-      ).bind('playing', Date.now(), room.id, 'ended').run();
+      // 验证是否成功获取黑色位置
+      const updatedRoom = await db.prepare(
+        'SELECT black_player_id FROM rooms WHERE id = ?'
+      ).bind(room.id).first();
+
+      if (!updatedRoom || updatedRoom.black_player_id !== playerId) {
+        // 另一个玩家已经抢先获取了黑色位置
+        return Response.json({ error: '房间已满' }, { status: 409 });
+      }
     }
-
-    await db.prepare(
-      'INSERT INTO players (id, room_id, color, name, connected, last_seen) VALUES (?, ?, ?, ?, 1, ?)'
-    ).bind(playerId, room.id, assignedColor, playerName, now).run();
 
     const gameState = await db.prepare(
       'SELECT board, current_turn, last_move, move_count, status, winner, updated_at FROM game_state WHERE room_id = ?'
