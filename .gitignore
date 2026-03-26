@@ -13,3 +13,8 @@ public/
 
 # IDE and tool directories
 .aone_copilot/
+
+# Playwright test results
+test-results/
+playwright-report/
+playwright/.cache/
