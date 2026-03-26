@@ -345,11 +345,19 @@ class ChineseChess {
 
         // 移除之前棋盘上所有棋子和合法走法标记的事件监听器
         // 避免在频繁渲染时累积监听器导致内存泄漏
-        this.eventListeners = this.eventListeners.filter(({ element }) => {
-            if (boardElement.contains(element)) {
-                element.removeEventListener('click', element._clickHandler);
-                element.removeEventListener('keydown', element._keydownHandler);
-                return false;
+        this.eventListeners = this.eventListeners.filter(({ element, event, handler }) => {
+            // Check if element is a valid DOM node (not window, document, etc.)
+            if (element && typeof element === 'object' && element.nodeType === Node.ELEMENT_NODE) {
+                if (boardElement.contains(element)) {
+                    element.removeEventListener(event, handler);
+                    if (element._clickHandler) {
+                        element.removeEventListener('click', element._clickHandler);
+                    }
+                    if (element._keydownHandler) {
+                        element.removeEventListener('keydown', element._keydownHandler);
+                    }
+                    return false;
+                }
             }
             return true;
         });
