@@ -182,9 +182,8 @@ export async function onRequest(context) {
   if (isApiRequest && context.request.method === 'OPTIONS') {
     // Restrict CORS to specific origins for better security
     const allowedOrigins = [
-      // Add your production domains here
-      // 'https://your-production-domain.com',
-      // 'https://your-staging-domain.com',
+      // Production domains
+      'https://chinachess.pages.dev',
       // For local development only
       'http://localhost:*',
       'http://127.0.0.1:*'
@@ -218,9 +217,8 @@ export async function onRequest(context) {
   if (isApiRequest) {
     // Restrict CORS to specific origins for better security
     const allowedOrigins = [
-      // Add your production domains here
-      // 'https://your-production-domain.com',
-      // 'https://your-staging-domain.com',
+      // Production domains
+      'https://chinachess.pages.dev',
       // For local development only
       'http://localhost:*',
       'http://127.0.0.1:*'
