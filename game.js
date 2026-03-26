@@ -260,14 +260,16 @@ class ChineseChess {
             this.addTrackedEventListener(chessBoard, 'keydown', (e) => this.handleKeyboardNavigation(e));
             // Click on empty board area deselects piece
             this.addTrackedEventListener(chessBoard, 'click', (e) => {
-                // Only deselect if clicking directly on the board, not on a piece or valid move
-                if (e.target === chessBoard || e.target.classList.contains('river')) {
-                    if (this.selectedPiece) {
-                        this.selectedPiece = null;
-                        this.selectedPosition = null;
-                        this.validMoves = [];
-                        this.renderBoard();
-                    }
+                // Only deselect if clicking on board lines, river, or the board itself
+                // (not on a piece or valid move indicator)
+                const isPiece = e.target.classList.contains('chess-piece');
+                const isValidMove = e.target.classList.contains('valid-move');
+                
+                if (!isPiece && !isValidMove && this.selectedPiece) {
+                    this.selectedPiece = null;
+                    this.selectedPosition = null;
+                    this.validMoves = [];
+                    this.renderBoard();
                 }
             });
         }
