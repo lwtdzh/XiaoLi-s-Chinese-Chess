@@ -257,6 +257,18 @@ class ChineseChess {
         // Add keyboard navigation support for chess board
         if (chessBoard) {
             this.addTrackedEventListener(chessBoard, 'keydown', (e) => this.handleKeyboardNavigation(e));
+            // Click on empty board area deselects piece
+            this.addTrackedEventListener(chessBoard, 'click', (e) => {
+                // Only deselect if clicking directly on the board, not on a piece or valid move
+                if (e.target === chessBoard || e.target.classList.contains('river')) {
+                    if (this.selectedPiece) {
+                        this.selectedPiece = null;
+                        this.selectedPosition = null;
+                        this.validMoves = [];
+                        this.renderBoard();
+                    }
+                }
+            });
         }
     }
 
