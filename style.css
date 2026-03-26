@@ -1,7 +1,22 @@
+/*
+ * Chinese Chess (象棋) - Responsive Styles
+ * 
+ * MOBILE-FIRST APPROACH
+ * The board scales dynamically based on viewport width.
+ * JavaScript reads CSS custom properties for accurate positioning.
+ */
+
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+}
+
+html {
+    /* Prevent font size inflation on mobile */
+    -moz-text-size-adjust: none;
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
 }
 
 body {
@@ -12,20 +27,22 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 15px;
+    padding: 10px;
     touch-action: manipulation; /* Disable double-tap zoom on mobile */
+    /* Prevent horizontal scroll on mobile */
+    overflow-x: hidden;
 }
 
 #app {
     width: 100%;
-    max-width: 600px;
+    max-width: 500px;
 }
 
 .screen {
     background: white;
-    border-radius: 20px;
-    padding: 25px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
     width: 100%;
 }
 
@@ -33,39 +50,69 @@ body {
     display: none !important;
 }
 
+/* ======== CSS Custom Properties for Board Sizing ======== */
+/* 
+ * These values are used by both CSS and JavaScript.
+ * JavaScript reads these to position pieces and lines correctly.
+ * 
+ * Board math for Chinese Chess (象棋):
+ * - 9 vertical lines (columns 0-8) → 8 cells width
+ * - 10 horizontal lines (rows 0-9) → 9 cells height
+ * - Pieces sit on intersections
+ * - River is between rows 4 and 5 (one cell height)
+ * 
+ * Board dimensions:
+ * - Width: 8 * cellSize + 2 * padding
+ * - Height: 9 * cellSize + 2 * padding (river IS one of the 9 cells)
+ */
+
+:root {
+    /* Default (mobile) - optimized for 320-375px screens */
+    --board-cell-size: 36px;
+    --board-padding: 18px;
+    --piece-size: 34px; /* Touch-friendly size */
+    --board-line-width: 1.5px;
+    
+    /* Calculated values - board has 9 cells (8 regular + 1 river) */
+    --board-width: calc(8 * var(--board-cell-size) + 2 * var(--board-padding));
+    --board-height: calc(9 * var(--board-cell-size) + 2 * var(--board-padding));
+}
+
 /* ======== Lobby ======== */
 
 #lobby h1 {
     text-align: center;
     color: #333;
-    margin-bottom: 25px;
-    font-size: 1.75em;
+    margin-bottom: 20px;
+    font-size: 1.5em;
 }
 
 .lobby-container {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
 }
 
 .room-section {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
 }
 
 .room-section h2 {
     color: #555;
-    font-size: 1.1em;
+    font-size: 1em;
 }
 
 input {
-    padding: 12px 15px;
+    padding: 14px 12px;
     border: 2px solid #e0e0e0;
     border-radius: 10px;
-    font-size: 16px;
+    font-size: 16px; /* Prevents zoom on iOS */
     transition: border-color 0.3s, box-shadow 0.3s;
     width: 100%;
+    /* Touch-friendly minimum height */
+    min-height: 48px;
 }
 
 input:focus {
@@ -90,7 +137,8 @@ button {
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s, background 0.2s;
     width: 100%;
-    min-height: 48px; /* Better touch target */
+    /* Touch-friendly minimum height (Apple HIG recommends 44px) */
+    min-height: 48px;
 }
 
 button:focus-visible {
@@ -125,10 +173,11 @@ button:disabled {
     color: #856404;
     word-break: break-word;
     animation: slideIn 0.3s ease-out;
+    font-size: 14px;
 }
 
 .game-message {
-    margin-top: 15px;
+    margin-top: 12px;
 }
 
 .game-message.success {
@@ -164,21 +213,22 @@ button:disabled {
 
 .game-header {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 15px;
-    padding: 12px 15px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
     background: #f5f5f5;
-    border-radius: 12px;
-    gap: 10px;
+    border-radius: 10px;
+    gap: 8px;
 }
 
 .player-info {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     font-weight: 600;
-    font-size: 13px;
+    font-size: 12px;
     flex: 1;
     min-width: 0; /* Allow text truncation */
 }
@@ -190,8 +240,8 @@ button:disabled {
 }
 
 .color-indicator {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     border: 2px solid #333;
     flex-shrink: 0;
@@ -221,15 +271,15 @@ button:disabled {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
-    flex: 1;
-    min-width: 0;
+    gap: 4px;
+    flex: 1 0 100%;
+    order: -1; /* Show turn indicator first on mobile */
 }
 
 #turnIndicator {
     font-weight: 600;
     color: #667eea;
-    font-size: 14px;
+    font-size: 13px;
     text-align: center;
 }
 
@@ -249,7 +299,7 @@ button:disabled {
 
 #turnIndicator.game-over {
     color: #dc3545;
-    font-size: 16px;
+    font-size: 15px;
 }
 
 @keyframes pulse-green {
@@ -304,49 +354,59 @@ button:disabled {
 
 #leaveRoomBtn {
     padding: 8px 12px;
-    font-size: 13px;
+    font-size: 12px;
     width: auto;
     min-height: 36px;
+    /* Ensure touch target size */
+    min-width: 60px;
 }
 
-/* ======== Chess Board ======== */
+/* ======== Chess Board Container ======== */
 
 .board-container {
     display: flex;
     justify-content: center;
     overflow-x: auto;
-    padding: 10px 0;
+    overflow-y: hidden;
+    padding: 8px 0;
     -webkit-overflow-scrolling: touch;
+    /* Hide scrollbar on mobile but keep functionality */
+    scrollbar-width: thin;
 }
+
+/* ======== Chess Board ======== */
 
 #chessBoard {
     position: relative;
-    width: 396px;
-    height: 440px;
+    width: var(--board-width);
+    height: var(--board-height);
     background: linear-gradient(180deg, #f5deb3 0%, #deb887 50%, #f5deb3 100%);
     border: 3px solid #8b4513;
-    border-radius: 8px;
+    border-radius: 6px;
     flex-shrink: 0;
     box-shadow: 
-        inset 0 0 20px rgba(139, 69, 19, 0.1),
-        0 4px 15px rgba(0, 0, 0, 0.2);
+        inset 0 0 15px rgba(139, 69, 19, 0.1),
+        0 4px 12px rgba(0, 0, 0, 0.2);
+    /* Hardware acceleration for smoother rendering */
+    will-change: transform;
 }
 
 .board-line {
     position: absolute;
     background: #8b4513;
+    /* Use CSS variable for line width */
+    height: var(--board-line-width);
+    width: var(--board-line-width);
 }
 
 .board-line.horizontal {
-    height: 2px;
-    width: 352px;
-    left: 22px;
+    height: var(--board-line-width);
+    /* Width set via JS: 8 * cellSize */
 }
 
 .board-line.vertical {
-    width: 2px;
-    height: 396px;
-    top: 22px;
+    /* Height set via JS: 4 * cellSize (top half) */
+    /* Top and bottom halves separated by river */
 }
 
 .palace-line {
@@ -355,33 +415,34 @@ button:disabled {
 
 .river {
     position: absolute;
-    top: 198px;
-    left: 22px;
-    width: 352px;
-    height: 44px;
-    background: linear-gradient(90deg, 
-        rgba(135, 206, 235, 0.1) 0%, 
-        rgba(135, 206, 235, 0.2) 50%, 
-        rgba(135, 206, 235, 0.1) 100%
-    );
+    /* Position set via JS based on cellSize */
     display: flex;
     justify-content: center;
     align-items: center;
-    font-size: 20px;
+    font-size: 14px;
     color: #8b4513;
     font-weight: bold;
-    letter-spacing: 8px;
+    letter-spacing: 4px;
+    /* River background - subtle water effect */
+    background: linear-gradient(90deg, 
+        rgba(135, 206, 235, 0.05) 0%, 
+        rgba(135, 206, 235, 0.15) 50%, 
+        rgba(135, 206, 235, 0.05) 100%
+    );
+    user-select: none;
 }
+
+/* ======== Chess Pieces ======== */
 
 .chess-piece {
     position: absolute;
-    width: 38px;
-    height: 38px;
+    width: var(--piece-size);
+    height: var(--piece-size);
     border-radius: 50%;
     display: flex;
     justify-content: center;
     align-items: center;
-    font-size: 18px;
+    font-size: calc(var(--piece-size) * 0.5);
     font-weight: bold;
     cursor: pointer;
     transition: transform 0.15s, box-shadow 0.15s;
@@ -389,6 +450,9 @@ button:disabled {
     border: 2px solid;
     z-index: 10;
     touch-action: manipulation;
+    /* Ensure good touch targets */
+    min-width: 36px;
+    min-height: 36px;
 }
 
 .chess-piece.red {
@@ -410,12 +474,12 @@ button:disabled {
 }
 
 .chess-piece:hover {
-    transform: scale(1.1);
+    transform: scale(1.08);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .chess-piece.selected {
-    transform: scale(1.15);
+    transform: scale(1.12);
     box-shadow: 
         0 0 0 3px rgba(102, 126, 234, 0.5),
         0 6px 20px rgba(102, 126, 234, 0.4);
@@ -429,10 +493,28 @@ button:disabled {
         0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+/* Make pieces more touch-friendly */
+@media (hover: none) and (pointer: coarse) {
+    .chess-piece {
+        /* Increase touch target area without visual change */
+        margin: -4px;
+        padding: 4px;
+    }
+    
+    .chess-piece:hover {
+        /* Remove hover effect on touch devices */
+        transform: none;
+    }
+    
+    .chess-piece.selected {
+        transform: scale(1.08);
+    }
+}
+
 .valid-move {
     position: absolute;
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     background: radial-gradient(circle, rgba(102, 126, 234, 0.7) 0%, rgba(102, 126, 234, 0.4) 100%);
     border-radius: 50%;
     transform: translate(-50%, -50%);
@@ -440,18 +522,27 @@ button:disabled {
     z-index: 5;
     transition: transform 0.15s, background 0.15s;
     touch-action: manipulation;
+    /* Make valid move indicators more touch-friendly */
+    min-width: 24px;
+    min-height: 24px;
+    margin-left: -5px;
+    margin-top: -5px;
 }
 
 .valid-move:hover {
     background: radial-gradient(circle, rgba(102, 126, 234, 0.9) 0%, rgba(102, 126, 234, 0.6) 100%);
-    transform: translate(-50%, -50%) scale(1.3);
+    transform: translate(-50%, -50%) scale(1.2);
 }
 
 .valid-move.capture {
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
     background: radial-gradient(circle, rgba(220, 53, 69, 0.5) 0%, rgba(220, 53, 69, 0.3) 100%);
     border: 2px dashed #dc3545;
+    min-width: 28px;
+    min-height: 28px;
+    margin-left: -4px;
+    margin-top: -4px;
 }
 
 .valid-move.capture:hover {
@@ -470,7 +561,7 @@ button:disabled {
         opacity: 1;
     }
     70% { 
-        box-shadow: 0 0 0 15px rgba(255, 0, 0, 0);
+        box-shadow: 0 0 0 12px rgba(255, 0, 0, 0);
         transform: scale(1.08);
         opacity: 0.7;
     }
@@ -532,208 +623,328 @@ button:disabled {
     to { transform: rotate(360deg); }
 }
 
-/* ======== Responsive ======== */
+/* ======== Responsive Breakpoints ======== */
 
-@media (max-width: 480px) {
-    body {
-        padding: 8px;
-        align-items: flex-start;
+/* Small phones (320px and up) - already covered by root defaults */
+
+/* Medium phones (375px and up) */
+@media (min-width: 375px) {
+    :root {
+        --board-cell-size: 40px;
+        --board-padding: 20px;
+        --piece-size: 36px;
     }
-
+    
     .screen {
-        padding: 15px;
-        border-radius: 15px;
-        margin-top: 10px;
+        padding: 18px;
     }
-
+    
     #lobby h1 {
-        font-size: 1.4em;
-        margin-bottom: 20px;
+        font-size: 1.6em;
+        margin-bottom: 22px;
     }
-
-    .lobby-container {
-        gap: 15px;
-    }
-
-    .room-section h2 {
-        font-size: 1em;
-    }
-
-    button {
-        padding: 12px 16px;
-        font-size: 15px;
-    }
-
-    .game-header {
-        flex-wrap: wrap;
-        padding: 10px;
-        gap: 8px;
-    }
-
-    .game-header .player-info {
-        font-size: 12px;
-        flex: 0 0 auto;
-        min-width: auto;
-    }
-
-    .game-status {
-        order: -1;
-        flex: 1 0 100%;
-    }
-
-    #turnIndicator {
-        font-size: 13px;
-    }
-
-    #leaveRoomBtn {
-        padding: 6px 10px;
-        font-size: 12px;
-        min-height: 32px;
-    }
-
-    .board-container {
-        padding: 5px 0;
-    }
-
-    #chessBoard {
-        width: 340px;
-        height: 380px;
-        border-radius: 6px;
-    }
-
-    .board-line.horizontal {
-        width: 300px;
-        left: 20px;
-    }
-
-    .board-line.vertical {
-        height: 340px;
-        top: 20px;
-    }
-
-    .river {
-        top: 170px;
-        left: 20px;
-        width: 300px;
-        height: 38px;
-        font-size: 16px;
-        letter-spacing: 4px;
-    }
-
+    
     .chess-piece {
-        width: 32px;
-        height: 32px;
-        font-size: 15px;
+        font-size: 17px;
     }
-
-    .valid-move {
-        width: 14px;
-        height: 14px;
-    }
-
-    .valid-move.capture {
-        width: 20px;
-        height: 20px;
-    }
-
-    .game-message {
-        padding: 10px 12px;
-        font-size: 13px;
-    }
-}
-
-@media (max-width: 360px) {
-    #chessBoard {
-        width: 300px;
-        height: 336px;
-    }
-
-    .board-line.horizontal {
-        width: 264px;
-        left: 18px;
-    }
-
-    .board-line.vertical {
-        height: 300px;
-        top: 18px;
-    }
-
+    
     .river {
-        top: 150px;
-        left: 18px;
-        width: 264px;
-        height: 34px;
+        font-size: 16px;
+        letter-spacing: 5px;
+    }
+    
+    #turnIndicator {
         font-size: 14px;
     }
+}
 
+/* Large phones (414px and up) */
+@media (min-width: 414px) {
+    :root {
+        --board-cell-size: 44px;
+        --board-padding: 22px;
+        --piece-size: 40px;
+    }
+    
+    .screen {
+        padding: 20px;
+    }
+    
+    #lobby h1 {
+        font-size: 1.7em;
+        margin-bottom: 24px;
+    }
+    
     .chess-piece {
-        width: 28px;
-        height: 28px;
+        font-size: 19px;
+    }
+    
+    .river {
+        font-size: 18px;
+        letter-spacing: 6px;
+    }
+    
+    .game-header {
+        padding: 12px 14px;
+    }
+    
+    .player-info {
         font-size: 13px;
     }
-
-    .valid-move {
-        width: 12px;
-        height: 12px;
+    
+    #turnIndicator {
+        font-size: 15px;
     }
 }
 
-/* ======== Landscape Mobile ======== */
+/* Tablets portrait (500px and up) */
+@media (min-width: 500px) {
+    :root {
+        --board-cell-size: 48px;
+        --board-padding: 24px;
+        --piece-size: 44px;
+        --board-line-width: 2px;
+    }
+    
+    body {
+        padding: 15px;
+    }
+    
+    .screen {
+        padding: 25px;
+        border-radius: 20px;
+    }
+    
+    #lobby h1 {
+        font-size: 1.75em;
+        margin-bottom: 25px;
+    }
+    
+    .lobby-container {
+        gap: 20px;
+    }
+    
+    .room-section h2 {
+        font-size: 1.1em;
+    }
+    
+    .chess-piece {
+        font-size: 21px;
+    }
+    
+    .valid-move {
+        width: 16px;
+        height: 16px;
+    }
+    
+    .valid-move.capture {
+        width: 24px;
+        height: 24px;
+    }
+    
+    .river {
+        font-size: 20px;
+        letter-spacing: 8px;
+    }
+    
+    #turnIndicator {
+        font-size: 16px;
+    }
+    
+    .game-header {
+        flex-wrap: nowrap;
+        padding: 14px 16px;
+    }
+    
+    .game-status {
+        order: 0;
+        flex: 1;
+    }
+}
+
+/* Tablets landscape and desktop (768px and up) */
+@media (min-width: 768px) {
+    :root {
+        --board-cell-size: 52px;
+        --board-padding: 26px;
+        --piece-size: 48px;
+    }
+    
+    #app {
+        max-width: 600px;
+    }
+    
+    .screen {
+        padding: 30px;
+    }
+    
+    #lobby h1 {
+        font-size: 2em;
+        margin-bottom: 30px;
+    }
+    
+    .chess-piece {
+        font-size: 23px;
+    }
+    
+    .river {
+        font-size: 22px;
+        letter-spacing: 10px;
+    }
+}
+
+/* ======== Landscape Mobile (max-height: 500px) ======== */
 
 @media (max-height: 500px) and (orientation: landscape) {
+    :root {
+        --board-cell-size: 32px;
+        --board-padding: 16px;
+        --piece-size: 30px;
+    }
+    
     body {
         padding: 5px;
+        align-items: flex-start;
     }
-
+    
     .screen {
         padding: 10px;
         border-radius: 10px;
     }
-
+    
     #lobby h1 {
         font-size: 1.2em;
         margin-bottom: 10px;
     }
-
+    
     .lobby-container {
         gap: 10px;
     }
-
+    
     .game-header {
-        margin-bottom: 8px;
-        padding: 8px;
+        margin-bottom: 6px;
+        padding: 6px 10px;
+        flex-wrap: nowrap;
     }
-
+    
+    .game-status {
+        order: 0;
+        flex: 1 0 auto;
+    }
+    
     .board-container {
         padding: 0;
     }
-
-    #chessBoard {
-        width: 320px;
-        height: 356px;
-    }
-
-    .board-line.horizontal {
-        width: 280px;
-        left: 20px;
-    }
-
-    .board-line.vertical {
-        height: 316px;
-        top: 20px;
-    }
-
-    .river {
-        top: 158px;
-        width: 280px;
-        height: 36px;
-        font-size: 14px;
-    }
-
+    
     .chess-piece {
-        width: 30px;
-        height: 30px;
         font-size: 14px;
+    }
+    
+    .valid-move {
+        width: 12px;
+        height: 12px;
+    }
+    
+    .valid-move.capture {
+        width: 18px;
+        height: 18px;
+    }
+    
+    .river {
+        font-size: 12px;
+        letter-spacing: 3px;
+    }
+    
+    #turnIndicator {
+        font-size: 12px;
+    }
+    
+    .game-message {
+        margin-top: 8px;
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+    
+    button {
+        min-height: 40px;
+    }
+    
+    input {
+        min-height: 40px;
+        padding: 10px 12px;
+    }
+}
+
+/* Extra small phones (less than 375px) */
+@media (max-width: 374px) {
+    :root {
+        --board-cell-size: 34px;
+        --board-padding: 17px;
+        --piece-size: 32px;
+    }
+    
+    body {
+        padding: 6px;
+    }
+    
+    .screen {
+        padding: 12px;
+        border-radius: 12px;
+    }
+    
+    #lobby h1 {
+        font-size: 1.3em;
+        margin-bottom: 16px;
+    }
+    
+    .lobby-container {
+        gap: 12px;
+    }
+    
+    .room-section h2 {
+        font-size: 0.95em;
+    }
+    
+    .game-header {
+        padding: 8px 10px;
+        gap: 6px;
+    }
+    
+    .player-info {
+        font-size: 11px;
+    }
+    
+    #turnIndicator {
+        font-size: 12px;
+    }
+    
+    .chess-piece {
+        font-size: 15px;
+    }
+    
+    .river {
+        font-size: 13px;
+        letter-spacing: 3px;
+    }
+    
+    .valid-move {
+        width: 12px;
+        height: 12px;
+    }
+    
+    .valid-move.capture {
+        width: 18px;
+        height: 18px;
+    }
+    
+    button {
+        padding: 12px 16px;
+        font-size: 15px;
+    }
+    
+    .game-message {
+        padding: 10px;
+        font-size: 12px;
     }
 }
 
@@ -837,5 +1048,17 @@ button:disabled {
 
     button, input {
         display: none;
+    }
+}
+
+/* ======== Accessibility: Reduced Motion ======== */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
     }
 }

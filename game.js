@@ -271,24 +271,77 @@ class ChineseChess {
                 }
             });
         }
+        
+        // Add resize handler to redraw board when viewport changes
+        // Use debounced resize to avoid excessive redraws
+        let resizeTimeout = null;
+        this.addTrackedEventListener(window, 'resize', () => {
+            if (resizeTimeout) clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                // Only redraw if we're in a game
+                if (this.roomId) {
+                    this.renderBoard();
+                }
+            }, 150);
+        });
+        
+        // Also handle orientation change on mobile
+        this.addTrackedEventListener(window, 'orientationchange', () => {
+            setTimeout(() => {
+                if (this.roomId) {
+                    this.renderBoard();
+                }
+            }, 100);
+        });
     }
 
     // ========================================
     // Board Rendering
     // ========================================
 
+    /**
+     * Get CSS custom property values for responsive board sizing
+     * @returns {Object} Board dimension values
+     */
+    getBoardDimensions() {
+        const boardElement = document.getElementById('chessBoard');
+        if (!boardElement) {
+            // Fallback defaults
+            return {
+                cellSize: 44,
+                padding: 22,
+                pieceSize: 40,
+                lineWidth: 2
+            };
+        }
+        
+        const computedStyle = getComputedStyle(boardElement);
+        
+        // Parse CSS custom properties
+        const cellSize = parseFloat(computedStyle.getPropertyValue('--board-cell-size')) || 44;
+        const padding = parseFloat(computedStyle.getPropertyValue('--board-padding')) || 22;
+        const pieceSize = parseFloat(computedStyle.getPropertyValue('--piece-size')) || 40;
+        const lineWidth = parseFloat(computedStyle.getPropertyValue('--board-line-width')) || 2;
+        
+        return { cellSize, padding, pieceSize, lineWidth };
+    }
+
     renderBoard() {
         const boardElement = document.getElementById('chessBoard');
         if (!boardElement) return;
 
         boardElement.innerHTML = '';
-        this.drawBoardLines(boardElement);
-
-        // 棋盘格子间距和偏移量
-        const cellSize = 44;
-        const offsetX = 20; // 棋子中心 X 偏移
-        const offsetY = 22; // 棋子中心 Y 偏移
-        const pieceRadius = 20; // 棋子半径
+        
+        // Get responsive dimensions from CSS custom properties
+        const dims = this.getBoardDimensions();
+        const { cellSize, padding, pieceSize, lineWidth } = dims;
+        
+        // Calculate offsets (center of intersection points)
+        const offsetX = padding; // 棋子中心 X 偏移
+        const offsetY = padding; // 棋子中心 Y 偏移
+        const pieceRadius = pieceSize / 2; // 棋子半径
+        
+        this.drawBoardLines(boardElement, dims);
 
         // 移除之前棋盘上所有棋子和合法走法标记的事件监听器
         // 避免在频繁渲染时累积监听器导致内存泄漏
@@ -372,48 +425,150 @@ class ChineseChess {
         }
     }
 
-    drawBoardLines(boardElement) {
+    drawBoardLines(boardElement, dims) {
+        const { cellSize, padding } = dims;
+        const lineWidth = dims.lineWidth || 1.5;
+        
+        // Calculate board dimensions
+        const boardWidth = 8 * cellSize; // 9 columns = 8 cells width
+        const topHalfHeight = 4 * cellSize; // Top half: 5 rows = 4 cells
+        const bottomHalfHeight = 4 * cellSize; // Bottom half: 5 rows = 4 cells
+        const fullBoardHeight = 9 * cellSize; // 10 rows = 9 cells
+
+        // Draw horizontal lines (10 lines for 10 rows)
         for (let i = 0; i < 10; i++) {
             const line = document.createElement('div');
             line.className = 'board-line horizontal';
-            line.style.top = `${i * 44 + 22}px`;
+            line.style.top = `${i * cellSize + padding}px`;
+            line.style.width = `${boardWidth}px`;
+            line.style.left = `${padding}px`;
             boardElement.appendChild(line);
         }
 
+        // Draw vertical lines (9 lines for 9 columns)
+        // Edge columns (0 and 8): continuous through the river
+        // Interior columns (1-7): broken at the river
+        
         for (let i = 0; i < 9; i++) {
-            const line = document.createElement('div');
-            line.className = 'board-line vertical';
-            line.style.left = `${i * 44 + 20}px`;
-            boardElement.appendChild(line);
+            if (i === 0 || i === 8) {
+                // Edge columns: continuous vertical line
+                const line = document.createElement('div');
+                line.className = 'board-line vertical';
+                line.style.left = `${i * cellSize + padding}px`;
+                line.style.height = `${fullBoardHeight}px`;
+                line.style.top = `${padding}px`;
+                boardElement.appendChild(line);
+            } else {
+                // Interior columns: broken at river
+                // Top half (rows 0-4)
+                const topLine = document.createElement('div');
+                topLine.className = 'board-line vertical';
+                topLine.style.left = `${i * cellSize + padding}px`;
+                topLine.style.height = `${topHalfHeight}px`;
+                topLine.style.top = `${padding}px`;
+                boardElement.appendChild(topLine);
+                
+                // Bottom half (rows 5-9)
+                const bottomLine = document.createElement('div');
+                bottomLine.className = 'board-line vertical';
+                bottomLine.style.left = `${i * cellSize + padding}px`;
+                bottomLine.style.height = `${bottomHalfHeight}px`;
+                bottomLine.style.top = `${5 * cellSize + padding}px`;
+                boardElement.appendChild(bottomLine);
+            }
         }
 
+        // Draw river between rows 4 and 5
+        // River height equals one cell height
         const river = document.createElement('div');
         river.className = 'river';
         river.textContent = '楚河        漢界';
+        river.style.top = `${4 * cellSize + padding}px`;
+        river.style.left = `${padding}px`;
+        river.style.width = `${boardWidth}px`;
+        river.style.height = `${cellSize}px`;
         boardElement.appendChild(river);
 
-        this.drawPalaceLines(boardElement);
+        this.drawPalaceLines(boardElement, dims);
     }
 
-    drawPalaceLines(boardElement) {
-        const palaceLines = [
-            { left: '152px', top: '22px', transform: 'rotate(47deg)', height: '128px', origin: 'top left' },
-            { left: '240px', top: '22px', transform: 'rotate(-47deg)', height: '128px', origin: 'top right' },
-            { left: '152px', top: '374px', transform: 'rotate(-47deg)', height: '128px', origin: 'top left' },
-            { left: '240px', top: '374px', transform: 'rotate(47deg)', height: '128px', origin: 'top right' }
-        ];
+    drawPalaceLines(boardElement, dims) {
+        const { cellSize, padding } = dims;
+        
+        // Palace positions: columns 3-5 (center 3 columns)
+        // Top palace: rows 0-2 (black side)
+        // Bottom palace: rows 7-9 (red side)
+        
+        // Calculate diagonal length using Pythagorean theorem
+        // Diagonal spans 2 cells horizontally and 2 cells vertically
+        const diagonalLength = Math.sqrt(8) * cellSize; // sqrt(2^2 + 2^2) * cellSize = sqrt(8) * cellSize
+        
+        // Calculate angles for diagonal lines
+        // For a square, the diagonal angle is 45 degrees
+        // tan(45°) = 1, so the angle for the diagonals
+        const angle = Math.atan2(2 * cellSize, 2 * cellSize) * (180 / Math.PI); // ~45 degrees
 
-        palaceLines.forEach(config => {
-            const line = document.createElement('div');
-            line.className = 'board-line palace-line';
-            line.style.left = config.left;
-            line.style.top = config.top;
-            line.style.width = '2px';
-            line.style.height = config.height;
-            line.style.transform = config.transform;
-            line.style.transformOrigin = config.origin;
-            boardElement.appendChild(line);
-        });
+        // Top palace diagonals (rows 0-2, cols 3-5)
+        // Top-left to bottom-right diagonal
+        const topLeftX = 3 * cellSize + padding;
+        const topLeftY = 0 * cellSize + padding;
+        
+        // Top-right to bottom-left diagonal
+        const topRightX = 5 * cellSize + padding;
+        const topRightY = 0 * cellSize + padding;
+        
+        // Create top palace diagonals
+        const topPalaceLine1 = document.createElement('div');
+        topPalaceLine1.className = 'board-line palace-line';
+        topPalaceLine1.style.position = 'absolute';
+        topPalaceLine1.style.left = `${topLeftX}px`;
+        topPalaceLine1.style.top = `${topLeftY}px`;
+        topPalaceLine1.style.width = '2px';
+        topPalaceLine1.style.height = `${diagonalLength}px`;
+        topPalaceLine1.style.transform = `rotate(${angle}deg)`;
+        topPalaceLine1.style.transformOrigin = 'top left';
+        boardElement.appendChild(topPalaceLine1);
+        
+        const topPalaceLine2 = document.createElement('div');
+        topPalaceLine2.className = 'board-line palace-line';
+        topPalaceLine2.style.position = 'absolute';
+        topPalaceLine2.style.left = `${topRightX}px`;
+        topPalaceLine2.style.top = `${topRightY}px`;
+        topPalaceLine2.style.width = '2px';
+        topPalaceLine2.style.height = `${diagonalLength}px`;
+        topPalaceLine2.style.transform = `rotate(-${angle}deg)`;
+        topPalaceLine2.style.transformOrigin = 'top right';
+        boardElement.appendChild(topPalaceLine2);
+
+        // Bottom palace diagonals (rows 7-9, cols 3-5)
+        const bottomLeftX = 3 * cellSize + padding;
+        const bottomLeftY = 7 * cellSize + padding;
+        
+        const bottomRightX = 5 * cellSize + padding;
+        const bottomRightY = 7 * cellSize + padding;
+        
+        // Create bottom palace diagonals
+        const bottomPalaceLine1 = document.createElement('div');
+        bottomPalaceLine1.className = 'board-line palace-line';
+        bottomPalaceLine1.style.position = 'absolute';
+        bottomPalaceLine1.style.left = `${bottomLeftX}px`;
+        bottomPalaceLine1.style.top = `${bottomLeftY}px`;
+        bottomPalaceLine1.style.width = '2px';
+        bottomPalaceLine1.style.height = `${diagonalLength}px`;
+        bottomPalaceLine1.style.transform = `rotate(-${angle}deg)`;
+        bottomPalaceLine1.style.transformOrigin = 'top left';
+        boardElement.appendChild(bottomPalaceLine1);
+        
+        const bottomPalaceLine2 = document.createElement('div');
+        bottomPalaceLine2.className = 'board-line palace-line';
+        bottomPalaceLine2.style.position = 'absolute';
+        bottomPalaceLine2.style.left = `${bottomRightX}px`;
+        bottomPalaceLine2.style.top = `${bottomRightY}px`;
+        bottomPalaceLine2.style.width = '2px';
+        bottomPalaceLine2.style.height = `${diagonalLength}px`;
+        bottomPalaceLine2.style.transform = `rotate(${angle}deg)`;
+        bottomPalaceLine2.style.transformOrigin = 'top right';
+        boardElement.appendChild(bottomPalaceLine2);
     }
 
     // ========================================
@@ -479,14 +634,22 @@ class ChineseChess {
             this.gameOver = true;
             this.showMessage(`🏆 ${piece.color === 'red' ? '红方' : '黑方'}获胜！`);
         } else {
+            // Check if the new current player has any legal moves
             this.isInCheck = this.isKingInCheck(this.board, this.currentPlayer);
-            if (this.isInCheck) {
-                if (this.isCheckmate(this.board, this.currentPlayer)) {
-                    this.gameOver = true;
+            
+            if (!this.hasLegalMoves(this.board, this.currentPlayer)) {
+                // No legal moves - either checkmate or stalemate
+                this.gameOver = true;
+                if (this.isInCheck) {
+                    // Checkmate - current player is in check and has no legal moves
                     this.showMessage(`🏆 将杀！${piece.color === 'red' ? '红方' : '黑方'}获胜！`);
                 } else {
-                    this.showMessage('⚠️ 将军！');
+                    // Stalemate - current player is not in check but has no legal moves
+                    this.showMessage('🤝 逼和！双方平局');
                 }
+            } else if (this.isInCheck) {
+                // Current player is in check but has legal moves to escape
+                this.showMessage('⚠️ 将军！');
             }
         }
 
@@ -592,25 +755,9 @@ class ChineseChess {
         return row >= 0 && row < 10 && col >= 0 && col < 9;
     }
 
-    getJiangMoves(row, col, color) {
-        const moves = [];
-        const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-        const minRow = color === 'red' ? 7 : 0;
-        const maxRow = color === 'red' ? 9 : 2;
-
-        for (const [dr, dc] of directions) {
-            const nr = row + dr;
-            const nc = col + dc;
-            if (nr >= minRow && nr <= maxRow && nc >= 3 && nc <= 5) {
-                const target = this.board[nr][nc];
-                if (!target || target.color !== color) {
-                    moves.push({ row: nr, col: nc });
-                }
-            }
-        }
-
-        return moves;
-    }
+    // Note: getJiangMoves() was removed - it was dead code (never called)
+    // All king movement uses getJiangBasicMoves() which correctly handles
+    // palace bounds. Flying general (飞将) is handled in isKingInCheck() and getRawMoves()
 
     getJiangBasicMoves(row, col, color) {
         const moves = [];
@@ -789,6 +936,25 @@ class ChineseChess {
     // Check and Checkmate Detection
     // ========================================
 
+    /**
+     * Check if a player has any legal moves
+     * Used for both checkmate and stalemate detection
+     */
+    hasLegalMoves(board, color) {
+        for (let row = 0; row < 10; row++) {
+            for (let col = 0; col < 9; col++) {
+                const piece = board[row][col];
+                if (piece && piece.color === color) {
+                    const moves = this.getValidMoves(row, col, piece);
+                    if (moves.length > 0) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     findKing(board, color) {
         for (let row = 0; row < 10; row++) {
             for (let col = 0; col < 9; col++) {
@@ -911,58 +1077,26 @@ class ChineseChess {
     }
 
     isCheckmate(board, color) {
-        // 使用栈模式，与 getRawMoves 保持一致，避免 this.board 状态混乱
-        if (!this._checkmateBoardStack) this._checkmateBoardStack = [];
-        
-        this._checkmateBoardStack.push(this.board);
-        this.board = board;
-        
-        try {
-            // Check for stalemate: if not in check and no legal moves, it's stalemate
-            const opponentColor = color === 'red' ? 'black' : 'red';
-            const inCheck = this.isKingInCheck(board, color);
-            
-            let hasLegalMoves = false;
-            for (let row = 0; row < 10; row++) {
-                for (let col = 0; col < 9; col++) {
-                    const piece = board[row][col];
-                    if (piece && piece.color === color) {
-                        const moves = this.getValidMoves(row, col, piece);
-                        if (moves.length > 0) {
-                            hasLegalMoves = true;
-                            break;
-                        }
-                    }
-                }
-                if (hasLegalMoves) break;
-            }
-            
-            if (!hasLegalMoves) {
-                if (!inCheck) {
-                    // Stalemate detected - no legal moves but not in check
-                    console.warn('[isCheckmate] Stalemate detected for', color);
-                    this.showMessage('🤝 逼和！双方平局');
-                    this.gameOver = true;
-                    return true;
-                }
-                // Checkmate - no legal moves and in check
-                return true;
-            }
-            
+        // Checkmate = in check + no legal moves
+        // Note: Stalemate (not in check + no legal moves) is handled separately in makeMove()
+        if (!this.isKingInCheck(board, color)) {
             return false;
-        } finally {
-            try {
-                const previous = this._checkmateBoardStack.pop();
-                this.board = previous;
-            } catch (e) {
-                console.error('[isCheckmate] Stack restoration failed:', e);
-                // 尝试恢复到初始状态
-                this.board = this._checkmateBoardStack.length > 0 
-                    ? this._checkmateBoardStack[0] 
-                    : this.initializeBoard();
-            }
         }
+        return !this.hasLegalMoves(board, color);
     }
+
+    isStalemate(board, color) {
+        // Stalemate = not in check + no legal moves
+        if (this.isKingInCheck(board, color)) {
+            return false;
+        }
+        return !this.hasLegalMoves(board, color);
+    }
+
+    // Note: The old isCheckmate function was refactored. It previously handled
+    // stalemate detection but that code was unreachable because isCheckmate()
+    // was only called when isInCheck was true. Stalemate is now properly
+    // detected in makeMove() by calling isStalemate().
 
     // ========================================
     // Server State Synchronization
