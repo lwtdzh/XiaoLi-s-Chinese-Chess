@@ -44,10 +44,26 @@ export async function onRequestPost(context) {
     
     const body = await context.request.json();
 
+    // Validate and sanitize player name to prevent injection attacks
+    let playerName = (body.playerName || 'Player').trim();
+    
     // Validate player name length
-    const playerName = (body.playerName || 'Player').trim();
     if (playerName.length > 50) {
       return Response.json({ error: '玩家名称过长（最多50字符）' }, { status: 400 });
+    }
+    
+    // Validate player name is not empty after trimming
+    if (playerName.length === 0) {
+      return Response.json({ error: '玩家名称不能为空' }, { status: 400 });
+    }
+    
+    // Sanitize player name by removing potentially dangerous characters
+    // Allow only alphanumeric, Chinese characters, spaces, and common punctuation
+    playerName = playerName.replace(/[^\u4e00-\u9fa5a-zA-Z0-9\s\-_]/g, '');
+    
+    // Re-validate after sanitization
+    if (playerName.length === 0) {
+      playerName = 'Player';
     }
 
     // 先通过 ID 查找，再通过名称查找

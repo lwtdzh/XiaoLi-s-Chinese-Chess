@@ -82,9 +82,23 @@ class ChessRules {
     }
 
     // Flying general rule
+    // Only applies when opponent king is in their palace (which is always the case in valid games)
     const opponentColor = color === 'red' ? 'black' : 'red';
+    // Define opponent's palace bounds
+    const oppMinRow = opponentColor === 'red' ? 7 : 0;
+    const oppMaxRow = opponentColor === 'red' ? 9 : 2;
+    const oppMinCol = 3;
+    const oppMaxCol = 5;
+    
     for (let r = 0; r < 10; r++) {
       if (board[r][col] && board[r][col].type === 'jiang' && board[r][col].color === opponentColor) {
+        // Check if opponent king is in their palace (should always be true in valid games)
+        if (r < oppMinRow || r > oppMaxRow || col < oppMinCol || col > oppMaxCol) {
+          // Opponent king is outside palace - this is an invalid game state
+          // Flying general rule should NOT apply
+          continue;
+        }
+        
         let blocked = false;
         const startRow = Math.min(row, r);
         const endRow = Math.max(row, r);

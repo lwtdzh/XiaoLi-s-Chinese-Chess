@@ -248,7 +248,7 @@ button:disabled {
 }
 
 .color-indicator.red {
-    background: #c41e3a;
+    background: #a01830; /* Darkened for WCAG AA contrast */
 }
 
 /* High contrast mode support for accessibility */
@@ -356,8 +356,7 @@ button:disabled {
     padding: 8px 12px;
     font-size: 12px;
     width: auto;
-    min-height: 36px;
-    /* Ensure touch target size */
+    min-height: 44px; /* Touch-friendly minimum (Apple HIG recommends 44px) */
     min-width: 60px;
 }
 
@@ -389,6 +388,26 @@ button:disabled {
         0 4px 12px rgba(0, 0, 0, 0.2);
     /* Hardware acceleration for smoother rendering */
     will-change: transform;
+    /* Focus indicator for accessibility */
+    outline: none;
+}
+
+#chessBoard:focus {
+    outline: 3px solid #667eea;
+    outline-offset: 2px;
+}
+
+#chessBoard:focus-visible {
+    outline: 3px solid #667eea;
+    outline-offset: 2px;
+}
+
+/* Fallback for older Safari that doesn't support :focus-visible */
+@supports not selector(:focus-visible) {
+    #chessBoard:focus {
+        outline: 3px solid #667eea;
+        outline-offset: 2px;
+    }
 }
 
 .board-line {
@@ -457,8 +476,8 @@ button:disabled {
 
 .chess-piece.red {
     background: linear-gradient(145deg, #fff 0%, #f0f0f0 100%);
-    color: #c41e3a;
-    border-color: #c41e3a;
+    color: #a01830; /* Darkened for WCAG AA contrast */
+    border-color: #a01830; /* Darkened for WCAG AA contrast */
     box-shadow: 
         0 2px 4px rgba(0, 0, 0, 0.1),
         inset 0 1px 0 rgba(255, 255, 255, 0.8);
@@ -485,6 +504,9 @@ button:disabled {
         0 6px 20px rgba(102, 126, 234, 0.4);
     border-color: #667eea;
     z-index: 15;
+    /* Non-color indicator for accessibility: pattern/shape */
+    outline: 3px dashed rgba(102, 126, 234, 0.8);
+    outline-offset: 2px;
 }
 
 .chess-piece.last-moved {
@@ -527,6 +549,9 @@ button:disabled {
     min-height: 24px;
     margin-left: -5px;
     margin-top: -5px;
+    /* Non-color indicator for accessibility: ring/border */
+    border: 2px solid rgba(102, 126, 234, 0.9);
+    box-shadow: 0 0 4px rgba(102, 126, 234, 0.6);
 }
 
 .valid-move:hover {
@@ -543,6 +568,9 @@ button:disabled {
     min-height: 28px;
     margin-left: -4px;
     margin-top: -4px;
+    /* Non-color indicator for accessibility: square shape for capture moves */
+    border-radius: 4px !important;
+    box-shadow: 0 0 6px rgba(220, 53, 69, 0.7);
 }
 
 .valid-move.capture:hover {

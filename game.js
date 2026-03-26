@@ -15,6 +15,17 @@ class ChineseChess {
         this.playerId = null;
         this.moveCount = 0;
 
+        // Session restoration flag
+        this._restoringSession = false;
+
+        // Timeout tracking for cleanup
+        this._resizeTimeout = null;
+        this._orientationTimeout = null;
+
+        // Polling state
+        this._pollingInProgress = false;
+        this._pollingFailures = 0;
+
         // Polling
         this.pollTimer = null;
         this.pollInterval = 1500; // 1.5秒轮询间隔
@@ -123,7 +134,7 @@ class ChineseChess {
 
     async rejoinRoom(session) {
         try {
-            const res = await fetch(`/api/rooms/${session.roomId}/join`, {
+            const res = await fetch(`/api/rooms/${encodeURIComponent(session.roomId)}/join`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ playerId: session.playerId })
@@ -208,6 +219,16 @@ class ChineseChess {
         // Stop polling
         this.stopPolling();
         
+        // Clear resize/orientation timeouts
+        if (this._resizeTimeout) {
+            clearTimeout(this._resizeTimeout);
+            this._resizeTimeout = null;
+        }
+        if (this._orientationTimeout) {
+            clearTimeout(this._orientationTimeout);
+            this._orientationTimeout = null;
+        }
+        
         // Remove all tracked event listeners
         this.eventListeners.forEach(({ element, event, handler }) => {
             element.removeEventListener(event, handler);
@@ -276,10 +297,9 @@ class ChineseChess {
         
         // Add resize handler to redraw board when viewport changes
         // Use debounced resize to avoid excessive redraws
-        let resizeTimeout = null;
         this.addTrackedEventListener(window, 'resize', () => {
-            if (resizeTimeout) clearTimeout(resizeTimeout);
-            resizeTimeout = setTimeout(() => {
+            if (this._resizeTimeout) clearTimeout(this._resizeTimeout);
+            this._resizeTimeout = setTimeout(() => {
                 // Only redraw if we're in a game
                 if (this.roomId) {
                     this.renderBoard();
@@ -289,7 +309,8 @@ class ChineseChess {
         
         // Also handle orientation change on mobile
         this.addTrackedEventListener(window, 'orientationchange', () => {
-            setTimeout(() => {
+            if (this._orientationTimeout) clearTimeout(this._orientationTimeout);
+            this._orientationTimeout = setTimeout(() => {
                 if (this.roomId) {
                     this.renderBoard();
                 }
@@ -674,7 +695,7 @@ class ChineseChess {
 
         // 发送到服务器
         try {
-            const res = await fetch(`/api/rooms/${this.roomId}/move`, {
+            const res = await fetch(`/api/rooms/${encodeURIComponent(this.roomId)}/move`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1227,7 +1248,7 @@ class ChineseChess {
             const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
             
             const res = await fetch(
-                `/api/rooms/${this.roomId}/state?since=${this.lastUpdatedAt}&playerId=${this.playerId}`,
+                `/api/rooms/${encodeURIComponent(this.roomId)}/state?since=${this.lastUpdatedAt}&playerId=${encodeURIComponent(this.playerId)}`,
                 { signal: controller.signal }
             );
             
@@ -1423,7 +1444,7 @@ class ChineseChess {
 
         if (this.roomId && this.playerId) {
             try {
-                await fetch(`/api/rooms/${this.roomId}/leave`, {
+                await fetch(`/api/rooms/${encodeURIComponent(this.roomId)}/leave`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ playerId: this.playerId })

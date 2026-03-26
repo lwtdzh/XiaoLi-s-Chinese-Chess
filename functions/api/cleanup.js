@@ -8,10 +8,16 @@ export async function onRequestPost(context) {
   const db = env.DB;
 
   try {
-    // Optional: Verify a secret token for security
+    // Verify Bearer token authentication for security
     const authHeader = request.headers.get('Authorization');
-    // For now, we'll allow without auth since it's just cleanup
-    // In production, you might want: if (authHeader !== `Bearer ${env.CLEANUP_SECRET}`) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return Response.json({ error: 'Unauthorized: Missing or invalid Authorization header' }, { status: 401 });
+    }
+    
+    const token = authHeader.slice(7); // Remove 'Bearer ' prefix
+    if (!env.CLEANUP_SECRET || token !== env.CLEANUP_SECRET) {
+      return Response.json({ error: 'Unauthorized: Invalid token' }, { status: 401 });
+    }
 
     const now = Date.now();
     const staleThreshold = now - STALE_TIMEOUT;
