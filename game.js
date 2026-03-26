@@ -214,8 +214,9 @@ class ChineseChess {
         });
         this.eventListeners = [];
         
-        // Clear session
-        sessionStorage.removeItem('chess_session');
+        // NOTE: Do NOT clear session here!
+        // Session should persist across page refreshes for reconnection.
+        // Session is only cleared when user explicitly leaves via leaveRoom().
     }
 
     addTrackedEventListener(element, event, handler) {
