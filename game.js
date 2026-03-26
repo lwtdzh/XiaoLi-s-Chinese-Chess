@@ -347,9 +347,14 @@ class ChineseChess {
 
         // 移除之前棋盘上所有棋子和合法走法标记的事件监听器
         // 避免在频繁渲染时累积监听器导致内存泄漏
+        // 注意：不移除棋盘本身的事件监听器（如点击空白处取消选择）
         this.eventListeners = this.eventListeners.filter(({ element, event, handler }) => {
             // Check if element is a valid DOM node (not window, document, etc.)
             if (element && typeof element === 'object' && element.nodeType === Node.ELEMENT_NODE) {
+                // Don't remove the board's own event listeners
+                if (element === boardElement) {
+                    return true;
+                }
                 if (boardElement.contains(element)) {
                     element.removeEventListener(event, handler);
                     if (element._clickHandler) {
