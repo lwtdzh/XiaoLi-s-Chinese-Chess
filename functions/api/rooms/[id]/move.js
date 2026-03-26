@@ -33,6 +33,11 @@ export async function onRequestPost(context) {
   const roomId = params.id;
 
   try {
+    // Validate roomId format (UUID)
+    if (!roomId || !/^[a-f0-9-]{36}$/i.test(roomId)) {
+      return Response.json({ error: '无效的房间 ID 格式' }, { status: 400 });
+    }
+    
     // Check rate limit based on client IP
     const clientIp = request.headers.get('CF-Connecting-IP') || 
                     request.headers.get('X-Forwarded-For')?.split(',')[0].trim() || 

@@ -1,5 +1,18 @@
 // Chinese Chess Frontend — REST API + Polling Architecture
 
+// ========================================
+// Constants (Magic Numbers)
+// ========================================
+const BOARD_ROWS = 10;
+const BOARD_COLS = 9;
+const DEFAULT_CELL_SIZE = 44;
+const DEFAULT_PADDING = 22;
+const DEFAULT_PIECE_SIZE = 40;
+const DEFAULT_LINE_WIDTH = 2;
+const POLL_INTERVAL_MS = 1500;
+const REQUEST_TIMEOUT_MS = 10000;
+const MAX_BOARD_STACK_SIZE = 100;
+
 class ChineseChess {
     constructor() {
         // Game state
@@ -26,9 +39,12 @@ class ChineseChess {
         this._pollingInProgress = false;
         this._pollingFailures = 0;
 
+        // Keyboard navigation cursor
+        this._keyboardCursor = null; // { row, col } for visual cursor
+
         // Polling
         this.pollTimer = null;
-        this.pollInterval = 1500; // 1.5秒轮询间隔
+        this.pollInterval = POLL_INTERVAL_MS;
         this.lastUpdatedAt = 0;
 
         // Check state
@@ -37,9 +53,31 @@ class ChineseChess {
         // Event listener tracking for cleanup
         this.eventListeners = [];
 
-        // Board state tracking for getRawMoves and isCheckmate
+        // ========================================
+        // Board Stack Mechanism
+        // ========================================
+        // The board stack is used to temporarily switch the board context during
+        // move validation. This allows reusing the existing move generation functions
+        // without passing the board as a parameter everywhere.
+        //
+        // How it works:
+        // 1. Before operating on a different board, push the current board onto the stack
+        // 2. Set this.board to the different board
+        // 3. Perform operations using existing methods
+        // 4. Pop from the stack to restore the original board
+        //
+        // This is used primarily in:
+        // - getRawMoves(): Generate moves for check detection
+        // - isCheckmate()/hasLegalMoves(): Check if player has escape moves
         this._rawMovesBoardStack = [];
         this._checkmateBoardStack = [];
+
+        // ========================================
+        // King Position Cache
+        // ========================================
+        // Caches the position of each king to avoid O(90) search on every check.
+        // Updated whenever the board changes (move, load, reset).
+        this._kingPositions = { red: null, black: null };
 
         // Initialize
         this.initUI();
@@ -99,7 +137,11 @@ class ChineseChess {
                 typeof session.playerId !== 'string' || !session.playerId ||
                 (session.color !== 'red' && session.color !== 'black')) {
                 console.error('[Session Restore] Invalid session data:', session);
-                sessionStorage.removeItem('chess_session');
+                try {
+                    sessionStorage.removeItem('chess_session');
+                } catch (removeError) {
+                    console.error('[Session Remove] Error:', removeError);
+                }
                 return;
             }
             
@@ -128,7 +170,11 @@ class ChineseChess {
             }
         } catch (e) {
             console.error('[Session Restore] Parse error:', e);
-            sessionStorage.removeItem('chess_session');
+            try {
+                sessionStorage.removeItem('chess_session');
+            } catch (removeError) {
+                console.error('[Session Remove] Error:', removeError);
+            }
         }
     }
 
@@ -141,7 +187,11 @@ class ChineseChess {
             });
 
             if (!res.ok) {
-                sessionStorage.removeItem('chess_session');
+                try {
+                    sessionStorage.removeItem('chess_session');
+                } catch (removeError) {
+                    console.error('[Session Remove] Error:', removeError);
+                }
                 this.showMessage('⚠️ 无法恢复游戏，请重新开始');
                 return;
             }
@@ -162,7 +212,11 @@ class ChineseChess {
             this.startPolling();
             this.showMessage('✅ 已恢复游戏');
         } catch (e) {
-            sessionStorage.removeItem('chess_session');
+            try {
+                sessionStorage.removeItem('chess_session');
+            } catch (removeError) {
+                console.error('[Session Remove] Error:', removeError);
+            }
             this.showMessage('⚠️ 网络错误，请重新开始');
         }
     }
@@ -172,7 +226,7 @@ class ChineseChess {
     // ========================================
 
     initializeBoard() {
-        const board = Array(10).fill(null).map(() => Array(9).fill(null));
+        const board = Array(BOARD_ROWS).fill(null).map(() => Array(BOARD_COLS).fill(null));
 
         board[0][0] = { type: 'ju', color: 'black', name: '車' };
         board[0][1] = { type: 'ma', color: 'black', name: '馬' };
@@ -208,7 +262,49 @@ class ChineseChess {
         board[6][6] = { type: 'zu', color: 'red', name: '兵' };
         board[6][8] = { type: 'zu', color: 'red', name: '兵' };
 
+        // Initialize king position cache with starting positions
+        this._kingPositions = {
+            red: { row: 9, col: 4 },
+            black: { row: 0, col: 4 }
+        };
+
         return board;
+    }
+
+    // ========================================
+    // King Position Cache Management
+    // ========================================
+
+    /**
+     * Update the king position cache when a move is made.
+     * This is called after every board modification to keep the cache accurate.
+     * @param {string} color - The color of the king ('red' or 'black')
+     * @param {number|null} newRow - The new row position, or null to invalidate cache
+     * @param {number|null} newCol - The new column position, or null to invalidate cache
+     */
+    updateKingPosition(color, newRow, newCol) {
+        if (newRow === null || newCol === null) {
+            // Invalidate cache - force search on next findKing call
+            this._kingPositions[color] = null;
+        } else {
+            this._kingPositions[color] = { row: newRow, col: newCol };
+        }
+    }
+
+    /**
+     * Update king positions cache from the current board state.
+     * Used when loading game state from server.
+     */
+    rebuildKingPositionCache() {
+        this._kingPositions = { red: null, black: null };
+        for (let row = 0; row < BOARD_ROWS; row++) {
+            for (let col = 0; col < BOARD_COLS; col++) {
+                const piece = this.board[row][col];
+                if (piece && piece.type === 'jiang') {
+                    this._kingPositions[piece.color] = { row, col };
+                }
+            }
+        }
     }
 
     // ========================================
@@ -329,22 +425,22 @@ class ChineseChess {
     getBoardDimensions() {
         const boardElement = document.getElementById('chessBoard');
         if (!boardElement) {
-            // Fallback defaults
+            // Fallback defaults using constants
             return {
-                cellSize: 44,
-                padding: 22,
-                pieceSize: 40,
-                lineWidth: 2
+                cellSize: DEFAULT_CELL_SIZE,
+                padding: DEFAULT_PADDING,
+                pieceSize: DEFAULT_PIECE_SIZE,
+                lineWidth: DEFAULT_LINE_WIDTH
             };
         }
         
         const computedStyle = getComputedStyle(boardElement);
         
-        // Parse CSS custom properties
-        const cellSize = parseFloat(computedStyle.getPropertyValue('--board-cell-size')) || 44;
-        const padding = parseFloat(computedStyle.getPropertyValue('--board-padding')) || 22;
-        const pieceSize = parseFloat(computedStyle.getPropertyValue('--piece-size')) || 40;
-        const lineWidth = parseFloat(computedStyle.getPropertyValue('--board-line-width')) || 2;
+        // Parse CSS custom properties, fall back to constants
+        const cellSize = parseFloat(computedStyle.getPropertyValue('--board-cell-size')) || DEFAULT_CELL_SIZE;
+        const padding = parseFloat(computedStyle.getPropertyValue('--board-padding')) || DEFAULT_PADDING;
+        const pieceSize = parseFloat(computedStyle.getPropertyValue('--piece-size')) || DEFAULT_PIECE_SIZE;
+        const lineWidth = parseFloat(computedStyle.getPropertyValue('--board-line-width')) || DEFAULT_LINE_WIDTH;
         
         return { cellSize, padding, pieceSize, lineWidth };
     }
@@ -433,6 +529,24 @@ class ChineseChess {
             boardElement.appendChild(dot);
         });
 
+        // 键盘导航光标
+        if (this._keyboardCursor) {
+            const cursor = document.createElement('div');
+            cursor.className = 'keyboard-cursor';
+            cursor.style.left = `${this._keyboardCursor.col * cellSize + offsetX - pieceRadius}px`;
+            cursor.style.top = `${this._keyboardCursor.row * cellSize + offsetY - pieceRadius}px`;
+            cursor.style.width = `${pieceRadius * 2}px`;
+            cursor.style.height = `${pieceRadius * 2}px`;
+            cursor.style.borderRadius = '50%';
+            cursor.style.border = '3px dashed #4a90d9';
+            cursor.style.position = 'absolute';
+            cursor.style.pointerEvents = 'none';
+            cursor.style.boxSizing = 'border-box';
+            cursor.setAttribute('role', 'gridcell');
+            cursor.setAttribute('aria-label', `键盘光标位于第${this._keyboardCursor.row + 1}行第${this._keyboardCursor.col + 1}列`);
+            boardElement.appendChild(cursor);
+        }
+
         // 将军高亮
         if (this.isInCheck) {
             this.highlightKingInCheck(boardElement, cellSize, offsetX, offsetY, pieceRadius);
@@ -440,25 +554,46 @@ class ChineseChess {
     }
 
     highlightKingInCheck(boardElement, cellSize, offsetX, offsetY, pieceRadius) {
-        for (let row = 0; row < 10; row++) {
-            for (let col = 0; col < 9; col++) {
+        // Use cached king position for O(1) lookup instead of O(90) search
+        const kingPos = this._kingPositions[this.currentPlayer];
+        
+        if (kingPos) {
+            // Verify the cached position still has the king
+            const piece = this.board[kingPos.row]?.[kingPos.col];
+            if (piece && piece.type === 'jiang' && piece.color === this.currentPlayer) {
+                this._createCheckIndicator(boardElement, kingPos.row, kingPos.col, cellSize, offsetX, offsetY, pieceRadius);
+                return; // Early exit - found and highlighted the king
+            }
+        }
+
+        // Fallback: search for king if cache is invalid
+        for (let row = 0; row < BOARD_ROWS; row++) {
+            for (let col = 0; col < BOARD_COLS; col++) {
                 const piece = this.board[row][col];
                 if (piece && piece.type === 'jiang' && piece.color === this.currentPlayer) {
-                    const indicator = document.createElement('div');
-                    indicator.className = 'check-indicator';
-                    indicator.style.left = `${col * cellSize + offsetX - pieceRadius}px`;
-                    indicator.style.top = `${row * cellSize + offsetY - pieceRadius}px`;
-                    indicator.style.width = `${pieceRadius * 2}px`;
-                    indicator.style.height = `${pieceRadius * 2}px`;
-                    indicator.style.borderRadius = '50%';
-                    indicator.style.border = '3px solid #ff0000';
-                    indicator.style.position = 'absolute';
-                    indicator.style.animation = 'pulse 1s infinite';
-                    indicator.style.pointerEvents = 'none';
-                    boardElement.appendChild(indicator);
+                    this._createCheckIndicator(boardElement, row, col, cellSize, offsetX, offsetY, pieceRadius);
+                    return; // Early exit after finding king
                 }
             }
         }
+    }
+
+    /**
+     * Helper method to create a check indicator element
+     */
+    _createCheckIndicator(boardElement, row, col, cellSize, offsetX, offsetY, pieceRadius) {
+        const indicator = document.createElement('div');
+        indicator.className = 'check-indicator';
+        indicator.style.left = `${col * cellSize + offsetX - pieceRadius}px`;
+        indicator.style.top = `${row * cellSize + offsetY - pieceRadius}px`;
+        indicator.style.width = `${pieceRadius * 2}px`;
+        indicator.style.height = `${pieceRadius * 2}px`;
+        indicator.style.borderRadius = '50%';
+        indicator.style.border = '3px solid #ff0000';
+        indicator.style.position = 'absolute';
+        indicator.style.animation = 'pulse 1s infinite';
+        indicator.style.pointerEvents = 'none';
+        boardElement.appendChild(indicator);
     }
 
     drawBoardLines(boardElement, dims) {
@@ -529,82 +664,87 @@ class ChineseChess {
     }
 
     drawPalaceLines(boardElement, dims) {
-        const { cellSize, padding } = dims;
+        const { cellSize, padding, lineWidth } = dims;
         
         // Palace positions: columns 3-5 (center 3 columns)
         // Top palace: rows 0-2 (black side)
         // Bottom palace: rows 7-9 (red side)
         
-        // Calculate diagonal length using Pythagorean theorem
-        // Diagonal spans 2 cells horizontally and 2 cells vertically
-        const diagonalLength = Math.sqrt(8) * cellSize; // sqrt(2^2 + 2^2) * cellSize = sqrt(8) * cellSize
+        // Use SVG for precise diagonal lines
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'palace-svg');
+        svg.style.position = 'absolute';
+        svg.style.top = '0';
+        svg.style.left = '0';
+        svg.style.width = '100%';
+        svg.style.height = '100%';
+        svg.style.pointerEvents = 'none';
         
-        // Calculate angles for diagonal lines
-        // For a square, the diagonal angle is 45 degrees
-        // tan(45°) = 1, so the angle for the diagonals
-        const angle = Math.atan2(2 * cellSize, 2 * cellSize) * (180 / Math.PI); // ~45 degrees
-
-        // Top palace diagonals (rows 0-2, cols 3-5)
-        // Top-left to bottom-right diagonal
+        const strokeColor = 'var(--board-line-color, #5a3d2b)';
+        const strokeWidth = lineWidth || 2;
+        
+        // Top palace diagonal lines (rows 0-2, cols 3-5)
+        // Diagonal from (col 3, row 0) to (col 5, row 2)
         const topLeftX = 3 * cellSize + padding;
         const topLeftY = 0 * cellSize + padding;
-        
-        // Top-right to bottom-left diagonal
         const topRightX = 5 * cellSize + padding;
         const topRightY = 0 * cellSize + padding;
+        const topBottomLeftX = 3 * cellSize + padding;
+        const topBottomLeftY = 2 * cellSize + padding;
+        const topBottomRightX = 5 * cellSize + padding;
+        const topBottomRightY = 2 * cellSize + padding;
         
-        // Create top palace diagonals
-        const topPalaceLine1 = document.createElement('div');
-        topPalaceLine1.className = 'board-line palace-line';
-        topPalaceLine1.style.position = 'absolute';
-        topPalaceLine1.style.left = `${topLeftX}px`;
-        topPalaceLine1.style.top = `${topLeftY}px`;
-        topPalaceLine1.style.width = '2px';
-        topPalaceLine1.style.height = `${diagonalLength}px`;
-        topPalaceLine1.style.transform = `rotate(${angle}deg)`;
-        topPalaceLine1.style.transformOrigin = 'top left';
-        boardElement.appendChild(topPalaceLine1);
+        // Top-left to bottom-right diagonal
+        const topLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        topLine1.setAttribute('x1', topLeftX);
+        topLine1.setAttribute('y1', topLeftY);
+        topLine1.setAttribute('x2', topBottomRightX);
+        topLine1.setAttribute('y2', topBottomRightY);
+        topLine1.setAttribute('stroke', strokeColor);
+        topLine1.setAttribute('stroke-width', strokeWidth);
+        svg.appendChild(topLine1);
         
-        const topPalaceLine2 = document.createElement('div');
-        topPalaceLine2.className = 'board-line palace-line';
-        topPalaceLine2.style.position = 'absolute';
-        topPalaceLine2.style.left = `${topRightX}px`;
-        topPalaceLine2.style.top = `${topRightY}px`;
-        topPalaceLine2.style.width = '2px';
-        topPalaceLine2.style.height = `${diagonalLength}px`;
-        topPalaceLine2.style.transform = `rotate(-${angle}deg)`;
-        topPalaceLine2.style.transformOrigin = 'top right';
-        boardElement.appendChild(topPalaceLine2);
-
-        // Bottom palace diagonals (rows 7-9, cols 3-5)
+        // Top-right to bottom-left diagonal
+        const topLine2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        topLine2.setAttribute('x1', topRightX);
+        topLine2.setAttribute('y1', topRightY);
+        topLine2.setAttribute('x2', topBottomLeftX);
+        topLine2.setAttribute('y2', topBottomLeftY);
+        topLine2.setAttribute('stroke', strokeColor);
+        topLine2.setAttribute('stroke-width', strokeWidth);
+        svg.appendChild(topLine2);
+        
+        // Bottom palace diagonal lines (rows 7-9, cols 3-5)
         const bottomLeftX = 3 * cellSize + padding;
         const bottomLeftY = 7 * cellSize + padding;
-        
         const bottomRightX = 5 * cellSize + padding;
         const bottomRightY = 7 * cellSize + padding;
+        const bottomBottomLeftX = 3 * cellSize + padding;
+        const bottomBottomLeftY = 9 * cellSize + padding;
+        const bottomBottomRightX = 5 * cellSize + padding;
+        const bottomBottomRightY = 9 * cellSize + padding;
         
-        // Create bottom palace diagonals
-        const bottomPalaceLine1 = document.createElement('div');
-        bottomPalaceLine1.className = 'board-line palace-line';
-        bottomPalaceLine1.style.position = 'absolute';
-        bottomPalaceLine1.style.left = `${bottomLeftX}px`;
-        bottomPalaceLine1.style.top = `${bottomLeftY}px`;
-        bottomPalaceLine1.style.width = '2px';
-        bottomPalaceLine1.style.height = `${diagonalLength}px`;
-        bottomPalaceLine1.style.transform = `rotate(-${angle}deg)`;
-        bottomPalaceLine1.style.transformOrigin = 'top left';
-        boardElement.appendChild(bottomPalaceLine1);
+        // Bottom-left to bottom-right diagonal (row 7 to row 9)
+        const bottomLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        bottomLine1.setAttribute('x1', bottomLeftX);
+        bottomLine1.setAttribute('y1', bottomLeftY);
+        bottomLine1.setAttribute('x2', bottomBottomRightX);
+        bottomLine1.setAttribute('y2', bottomBottomRightY);
+        bottomLine1.setAttribute('stroke', strokeColor);
+        bottomLine1.setAttribute('stroke-width', strokeWidth);
+        svg.appendChild(bottomLine1);
         
-        const bottomPalaceLine2 = document.createElement('div');
-        bottomPalaceLine2.className = 'board-line palace-line';
-        bottomPalaceLine2.style.position = 'absolute';
-        bottomPalaceLine2.style.left = `${bottomRightX}px`;
-        bottomPalaceLine2.style.top = `${bottomRightY}px`;
-        bottomPalaceLine2.style.width = '2px';
-        bottomPalaceLine2.style.height = `${diagonalLength}px`;
-        bottomPalaceLine2.style.transform = `rotate(${angle}deg)`;
-        bottomPalaceLine2.style.transformOrigin = 'top right';
-        boardElement.appendChild(bottomPalaceLine2);
+        // Bottom-right to bottom-left diagonal
+        const bottomLine2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        bottomLine2.setAttribute('x1', bottomRightX);
+        bottomLine2.setAttribute('y1', bottomRightY);
+        bottomLine2.setAttribute('x2', bottomBottomLeftX);
+        bottomLine2.setAttribute('y2', bottomBottomLeftY);
+        bottomLine2.setAttribute('stroke', strokeColor);
+        bottomLine2.setAttribute('stroke-width', strokeWidth);
+        svg.appendChild(bottomLine2);
+        
+        boardElement.appendChild(svg);
     }
 
     // ========================================
@@ -643,6 +783,28 @@ class ChineseChess {
     }
 
     async makeMove(fromRow, fromCol, toRow, toCol) {
+        // ========================================
+        // Optimistic Locking Approach
+        // ========================================
+        // This function uses optimistic locking to prevent race conditions when
+        // multiple clients try to make moves simultaneously.
+        //
+        // How it works:
+        // 1. The client sends `expectedMoveCount` with the move request
+        // 2. The server checks if `expectedMoveCount` matches the actual `move_count`
+        // 3. If they match, the move is accepted and move_count is incremented
+        // 4. If they don't match, the server returns 409 MOVE_CONFLICT
+        // 5. The client then rolls back the optimistic update and fetches the latest state
+        //
+        // Benefits:
+        // - No need for server-side locks or transactions for most cases
+        // - Fast response time for normal operations
+        // - Automatic conflict resolution via polling
+        //
+        // Trade-offs:
+        // - Requires client to handle conflicts (rollback + retry)
+        // - Not suitable for high-concurrency scenarios (would need server-side locking)
+        
         const piece = this.board[fromRow][fromCol];
         const capturedPiece = this.board[toRow][toCol];
 
@@ -661,6 +823,12 @@ class ChineseChess {
         // 乐观更新
         this.board[toRow][toCol] = piece;
         this.board[fromRow][fromCol] = null;
+        
+        // Update king position cache if a king was moved
+        if (piece.type === 'jiang') {
+            this.updateKingPosition(piece.color, toRow, toCol);
+        }
+        
         this.selectedPiece = null;
         this.selectedPosition = null;
         this.validMoves = [];
@@ -992,10 +1160,28 @@ class ChineseChess {
     }
 
     findKing(board, color) {
-        for (let row = 0; row < 10; row++) {
-            for (let col = 0; col < 9; col++) {
+        // Optimization: Use cached king position for the main board (this.board)
+        // The cache is only valid when searching the current game board.
+        // For other boards (e.g., during move simulation), fall back to full search.
+        if (board === this.board && this._kingPositions[color]) {
+            // Verify cache is still valid (defensive check)
+            const cached = this._kingPositions[color];
+            const piece = board[cached.row]?.[cached.col];
+            if (piece && piece.type === 'jiang' && piece.color === color) {
+                return cached;
+            }
+            // Cache miss - fall through to full search
+        }
+
+        // Full search with early exit optimization
+        for (let row = 0; row < BOARD_ROWS; row++) {
+            for (let col = 0; col < BOARD_COLS; col++) {
                 const piece = board[row][col];
                 if (piece && piece.type === 'jiang' && piece.color === color) {
+                    // Update cache if this is the main board
+                    if (board === this.board) {
+                        this._kingPositions[color] = { row, col };
+                    }
                     return { row, col };
                 }
             }
@@ -1144,10 +1330,10 @@ class ChineseChess {
         if (state.board && Array.isArray(state.board)) {
             // 防御：服务端 board 必须是 10x9，否则可能导致后续访问越界/崩溃
             // Combine checks into single iteration for efficiency
-            let isValidShape = state.board.length === 10;
+            let isValidShape = state.board.length === BOARD_ROWS;
             if (isValidShape) {
                 for (let i = 0; i < state.board.length; i++) {
-                    if (!Array.isArray(state.board[i]) || state.board[i].length !== 9) {
+                    if (!Array.isArray(state.board[i]) || state.board[i].length !== BOARD_COLS) {
                         isValidShape = false;
                         break;
                     }
@@ -1156,6 +1342,8 @@ class ChineseChess {
 
             if (isValidShape) {
                 this.board = this.boardFromServerFormat(state.board);
+                // Rebuild king position cache after loading board from server
+                this.rebuildKingPositionCache();
             } else {
                 this.showMessage('⚠️ 收到异常棋盘数据，已跳过同步');
                 return;
@@ -1197,9 +1385,9 @@ class ChineseChess {
             'p': { type: 'zu', color: 'black', name: '卒' },
         };
 
-        const board = Array(10).fill(null).map(() => Array(9).fill(null));
-        for (let row = 0; row < 10; row++) {
-            for (let col = 0; col < 9; col++) {
+        const board = Array(BOARD_ROWS).fill(null).map(() => Array(BOARD_COLS).fill(null));
+        for (let row = 0; row < BOARD_ROWS; row++) {
+            for (let col = 0; col < BOARD_COLS; col++) {
                 const code = serverBoard[row]?.[col];
                 if (code && code !== '.') {
                     const piece = pieceMap[code];
@@ -1239,8 +1427,15 @@ class ChineseChess {
         if (this._leavingRoom) return;
         if (!this.roomId || !this.playerId) return;
         
+        // Prevent concurrent polling requests
+        if (this._pollingInProgress) return;
+        this._pollingInProgress = true;
+        
         // Add check for gameOver to prevent unnecessary polling after game ends
-        if (this.gameOver) return;
+        if (this.gameOver) {
+            this._pollingInProgress = false;
+            return;
+        }
 
         try {
             // Add timeout handling with AbortController
@@ -1254,7 +1449,17 @@ class ChineseChess {
             
             clearTimeout(timeoutId);
 
-            if (!res.ok) return;
+            if (!res.ok) {
+                // Track failures for non-OK responses
+                this._pollingFailures++;
+                if (this._pollingFailures >= 3) {
+                    this.showMessage('⚠️ 网络连接不稳定，请检查网络');
+                }
+                return;
+            }
+
+            // Reset failure count on success
+            this._pollingFailures = 0;
 
             const data = await res.json();
 
@@ -1283,16 +1488,29 @@ class ChineseChess {
                 }
             }
         } catch (error) {
+            // Track failures
+            this._pollingFailures++;
+            
             // Handle AbortError (timeout) separately from other errors
             if (error.name === 'AbortError') {
                 console.warn('[Poll] Timeout after 10 seconds, will retry on next interval');
             } else {
                 console.error('[Poll] Error:', error);
             }
+            
+            // Show notification after 3 consecutive failures
+            if (this._pollingFailures >= 3) {
+                this.showMessage('⚠️ 网络连接不稳定，请检查网络');
+            }
+        } finally {
+            this._pollingInProgress = false;
         }
     }
 
     updateOpponentStatus(data) {
+        // Return early if color is not set yet
+        if (!this.color) return;
+        
         const opponentEl = document.getElementById('opponentName');
         if (!opponentEl) {
             console.warn('[updateOpponentStatus] Element "opponentName" not found');
@@ -1423,6 +1641,7 @@ class ChineseChess {
             } else {
                 this.board = this.initializeBoard();
                 this.currentPlayer = 'red';
+                this.lastUpdatedAt = Date.now();
             }
 
             this.switchToGameScreen();
@@ -1475,6 +1694,8 @@ class ChineseChess {
         this.moveCount = 0;
         this.lastUpdatedAt = 0;
         this.isInCheck = false;
+        this._keyboardCursor = null;
+        this._pollingFailures = 0;
         this.showMessage('');
     }
 
@@ -1506,31 +1727,49 @@ class ChineseChess {
     }
 
     handleKeyboardNavigation(e) {
-        if (!this.selectedPosition || this.validMoves.length === 0) return;
+        // Initialize keyboard cursor if not set
+        if (!this._keyboardCursor) {
+            this._keyboardCursor = { row: 4, col: 4 }; // Start at center
+        }
         
-        const { row, col } = this.selectedPosition;
-        let newRow = row;
-        let newCol = col;
+        let newRow = this._keyboardCursor.row;
+        let newCol = this._keyboardCursor.col;
         
         switch (e.key) {
             case 'ArrowUp':
-                newRow = Math.max(0, row - 1);
+                newRow = Math.max(0, this._keyboardCursor.row - 1);
                 break;
             case 'ArrowDown':
-                newRow = Math.min(9, row + 1);
+                newRow = Math.min(9, this._keyboardCursor.row + 1);
                 break;
             case 'ArrowLeft':
-                newCol = Math.max(0, col - 1);
+                newCol = Math.max(0, this._keyboardCursor.col - 1);
                 break;
             case 'ArrowRight':
-                newCol = Math.min(8, col + 1);
+                newCol = Math.min(8, this._keyboardCursor.col + 1);
                 break;
             case 'Enter':
             case ' ':
-                // Try to move to the first valid move
-                if (this.validMoves.length > 0) {
-                    const move = this.validMoves[0];
-                    this.handleMoveClick(move.row, move.col);
+                // If we have a selected piece and cursor is on a valid move, execute the move
+                if (this.selectedPiece && this.validMoves.length > 0) {
+                    const isValidMove = this.validMoves.some(
+                        move => move.row === this._keyboardCursor.row && move.col === this._keyboardCursor.col
+                    );
+                    if (isValidMove) {
+                        this.handleMoveClick(this._keyboardCursor.row, this._keyboardCursor.col);
+                        e.preventDefault();
+                        return;
+                    }
+                }
+                // Otherwise, try to select a piece at cursor position
+                if (this._keyboardCursor) {
+                    const piece = this.board[this._keyboardCursor.row][this._keyboardCursor.col];
+                    if (piece && piece.color === this.color && this.currentPlayer === this.color) {
+                        this.selectedPiece = piece;
+                        this.selectedPosition = { row: this._keyboardCursor.row, col: this._keyboardCursor.col };
+                        this.validMoves = this.getValidMoves(this._keyboardCursor.row, this._keyboardCursor.col, piece);
+                        this.renderBoard();
+                    }
                 }
                 e.preventDefault();
                 return;
@@ -1548,11 +1787,11 @@ class ChineseChess {
         
         e.preventDefault();
         
-        // Check if the new position is a valid move
-        const isValidMove = this.validMoves.some(move => move.row === newRow && move.col === newCol);
-        if (isValidMove) {
-            this.handleMoveClick(newRow, newCol);
-        }
+        // Update cursor position
+        this._keyboardCursor = { row: newRow, col: newCol };
+        
+        // Re-render to show cursor
+        this.renderBoard();
     }
 
     // ========================================
