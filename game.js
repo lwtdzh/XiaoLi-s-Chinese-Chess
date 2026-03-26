@@ -201,6 +201,7 @@ class ChineseChess {
             this.playerId = data.playerId;
             this.color = data.color;
             this.roomName = data.roomName;
+            this.updateMyColorIndicator();
 
             if (data.gameState) {
                 this.loadGameState(data.gameState);
@@ -1504,6 +1505,22 @@ class ChineseChess {
             }
         } finally {
             this._pollingInProgress = false;
+        }
+    }
+
+    updateMyColorIndicator() {
+        const indicator = document.getElementById('myColorIndicator');
+        if (!indicator) {
+            console.warn('[updateMyColorIndicator] Element not found');
+            return;
+        }
+        
+        // Remove existing color classes
+        indicator.classList.remove('red', 'black');
+        
+        // Add the player's color class
+        if (this.color) {
+            indicator.classList.add(this.color);
         }
     }
 
