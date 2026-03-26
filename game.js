@@ -1591,6 +1591,7 @@ class ChineseChess {
             this.roomName = data.roomName;
 
             this.saveSession();
+            this.updateMyColorIndicator();
             this.board = this.initializeBoard();
             this.currentPlayer = 'red';
             this.gameOver = false;
@@ -1652,6 +1653,7 @@ class ChineseChess {
             this.roomName = data.roomName;
 
             this.saveSession();
+            this.updateMyColorIndicator();
 
             if (data.gameState) {
                 this.loadGameState(data.gameState);
