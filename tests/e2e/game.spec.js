@@ -422,8 +422,12 @@ test.describe('Chinese Chess E2E Tests', () => {
       await page.fill('#joinRoomId', 'non-existent-room-testing-12345');
       await page.click('#joinRoomBtn');
       
-      // Should show error message (not crash)
-      await expect(page.locator('#lobbyMessage')).toBeVisible({ timeout: 5000 });
+      // Wait for error message (not just visibility, but the actual error text)
+      await page.waitForFunction(() => {
+        const el = document.querySelector('#lobbyMessage');
+        return el && el.textContent.includes('房间不存在');
+      }, { timeout: 5000 });
+      
       const message = await page.locator('#lobbyMessage').textContent();
       expect(message).toContain('房间不存在');
     });
