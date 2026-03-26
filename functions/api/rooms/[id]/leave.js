@@ -116,36 +116,42 @@ export async function onRequestPost(context) {
 
     const now = Date.now();
     
-    // 标记玩家断开连接
-    await db.prepare(
-      'UPDATE players SET connected = 0, last_seen = ? WHERE id = ?'
-    ).bind(now, playerId).run();
-
-    // 清空该玩家的席位（允许其他人加入）
-    if (player.color === 'red' && room) {
-      await db.prepare(
-        'UPDATE rooms SET red_player_id = NULL WHERE id = ?'
-      ).bind(roomId).run();
-    } else if (player.color === 'black' && room) {
-      await db.prepare(
-        'UPDATE rooms SET black_player_id = NULL WHERE id = ?'
-      ).bind(roomId).run();
+    // Use batch transactions for atomic operations
+    // First, determine what needs to be updated
+    const isRedPlayer = player.color === 'red';
+    const isBlackPlayer = player.color === 'black';
+    
+    // Build batch operations atomically
+    const batchOps = [
+      // Mark player as disconnected
+      db.prepare('UPDATE players SET connected = 0, last_seen = ? WHERE id = ?').bind(now, playerId)
+    ];
+    
+    // Clear the player's slot
+    if (isRedPlayer && room) {
+      batchOps.push(
+        db.prepare('UPDATE rooms SET red_player_id = NULL WHERE id = ?').bind(roomId)
+      );
+    } else if (isBlackPlayer && room) {
+      batchOps.push(
+        db.prepare('UPDATE rooms SET black_player_id = NULL WHERE id = ?').bind(roomId)
+      );
     }
+    
+    // Execute first batch
+    await db.batch(batchOps);
 
-    // 如果房间变成空的，重置状态为 waiting
+    // Check if room is now empty and clean up in a second atomic batch
     const updatedRoom = await db.prepare(
       'SELECT red_player_id, black_player_id FROM rooms WHERE id = ?'
     ).bind(roomId).first();
     
     if (updatedRoom && !updatedRoom.red_player_id && !updatedRoom.black_player_id) {
-      await db.prepare(
-        'UPDATE rooms SET status = ? WHERE id = ?'
-      ).bind('waiting', roomId).run();
-      
-      // 删除该房间的所有玩家记录（房间已空）
-      await db.prepare(
-        'DELETE FROM players WHERE room_id = ?'
-      ).bind(roomId).run();
+      // Room is empty - clean up atomically
+      await db.batch([
+        db.prepare('UPDATE rooms SET status = ? WHERE id = ?').bind('waiting', roomId),
+        db.prepare('DELETE FROM players WHERE room_id = ?').bind(roomId)
+      ]);
       
       console.log(`[Leave] Room ${roomId} is now empty, cleaned up players`);
     }

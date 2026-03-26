@@ -6,6 +6,69 @@
  * JavaScript reads CSS custom properties for accurate positioning.
  */
 
+/* ========================================
+   CSS Custom Properties (Design Tokens)
+   ======================================== */
+:root {
+    /* Board Sizing Variables */
+    --board-cell-size: 36px;
+    --board-padding: 18px;
+    --piece-size: 34px;
+    --board-line-width: 1.5px;
+    
+    /* Spacing Variables */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 12px;
+    --spacing-lg: 16px;
+    --spacing-xl: 20px;
+    --spacing-2xl: 24px;
+    --spacing-3xl: 30px;
+    
+    /* Font Size Variables */
+    --font-size-xs: 10px;
+    --font-size-sm: 11px;
+    --font-size-md: 12px;
+    --font-size-base: 14px;
+    --font-size-lg: 16px;
+    --font-size-xl: 20px;
+    --font-size-2xl: 24px;
+    
+    /* Touch Target Size (Apple HIG recommends 44px) */
+    --touch-target-min: 48px;
+    
+    /* Border Radius */
+    --radius-sm: 4px;
+    --radius-md: 10px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-2xl: 20px;
+    
+    /* Calculated values - board has 9 cells (8 regular + 1 river) */
+    --board-width: calc(8 * var(--board-cell-size) + 2 * var(--board-padding));
+    --board-height: calc(9 * var(--board-cell-size) + 2 * var(--board-padding));
+    
+    /* Colors */
+    --color-primary: #667eea;
+    --color-primary-dark: #5a6fd6;
+    --color-secondary: #764ba2;
+    --color-secondary-dark: #6a4190;
+    --color-success: #28a745;
+    --color-danger: #dc3545;
+    --color-warning: #ffc107;
+    --color-text: #333;
+    --color-text-muted: #555;
+    --color-text-light: #666;
+    --color-border: #e0e0e0;
+    --color-bg-light: #f5f5f5;
+    
+    /* Gradient Variables (reusable) */
+    --gradient-primary: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+    --gradient-primary-hover: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-secondary-dark) 100%);
+    --gradient-board: linear-gradient(180deg, #f5deb3 0%, #deb887 50%, #f5deb3 100%);
+    --gradient-piece-bg: linear-gradient(145deg, #fff 0%, #f0f0f0 100%);
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -21,13 +84,13 @@ html {
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--gradient-primary);
     min-height: 100vh;
     min-height: 100dvh; /* Dynamic viewport height for mobile */
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 10px;
+    padding: var(--spacing-sm);
     touch-action: manipulation; /* Disable double-tap zoom on mobile */
     /* Prevent horizontal scroll on mobile */
     overflow-x: hidden;
@@ -40,14 +103,14 @@ body {
 
 .screen {
     background: white;
-    border-radius: 16px;
-    padding: 16px;
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-lg);
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
     width: 100%;
 }
 
 .screen:focus {
-    outline: 3px solid #667eea;
+    outline: 3px solid var(--color-primary);
     outline-offset: 2px;
 }
 
@@ -74,115 +137,83 @@ body {
     top: -100px;
     left: 50%;
     transform: translateX(-50%);
-    background: #667eea;
+    background: var(--color-primary);
     color: white;
-    padding: 12px 24px;
-    border-radius: 8px;
-    text-decoration: none;
-    font-weight: 600;
-    z-index: 1000;
+    padding: var(--spacing-md) var(--spacing-2xl);
+    border-radius: var(--radius-md);
+    z-index: 100;
     transition: top 0.3s;
 }
 
 .skip-link:focus {
-    top: 10px;
-    outline: 3px solid #4ade80;
-    outline-offset: 2px;
-}
-
-/* ======== CSS Custom Properties for Board Sizing ======== */
-/* 
- * These values are used by both CSS and JavaScript.
- * JavaScript reads these to position pieces and lines correctly.
- * 
- * Board math for Chinese Chess (象棋):
- * - 9 vertical lines (columns 0-8) → 8 cells width
- * - 10 horizontal lines (rows 0-9) → 9 cells height
- * - Pieces sit on intersections
- * - River is between rows 4 and 5 (one cell height)
- * 
- * Board dimensions:
- * - Width: 8 * cellSize + 2 * padding
- * - Height: 9 * cellSize + 2 * padding (river IS one of the 9 cells)
- */
-
-:root {
-    /* Default (mobile) - optimized for 320-375px screens */
-    --board-cell-size: 36px;
-    --board-padding: 18px;
-    --piece-size: 34px; /* Touch-friendly size */
-    --board-line-width: 1.5px;
-    
-    /* Calculated values - board has 9 cells (8 regular + 1 river) */
-    --board-width: calc(8 * var(--board-cell-size) + 2 * var(--board-padding));
-    --board-height: calc(9 * var(--board-cell-size) + 2 * var(--board-padding));
+    top: var(--spacing-md);
 }
 
 /* ======== Lobby ======== */
 
 #lobby h1 {
     text-align: center;
-    color: #333;
-    margin-bottom: 20px;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-xl);
     font-size: 1.5em;
 }
 
 .lobby-container {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--spacing-lg);
 }
 
 .room-section {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--spacing-sm);
 }
 
 .room-section h2 {
-    color: #555;
+    color: var(--color-text-muted);
     font-size: 1em;
 }
 
-input {
-    padding: 14px 12px;
-    border: 2px solid #e0e0e0;
-    border-radius: 10px;
-    font-size: 16px; /* Prevents zoom on iOS */
-    transition: border-color 0.3s, box-shadow 0.3s;
+/* ======== Form Controls (Combined button/input styles) ======== */
+
+input,
+button {
+    padding: 14px var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-lg); /* Prevents zoom on iOS */
     width: 100%;
     /* Touch-friendly minimum height */
-    min-height: 48px;
+    min-height: var(--touch-target-min);
+    transition: all 0.2s ease;
+}
+
+input {
+    border: 2px solid var(--color-border);
+    background: white;
 }
 
 input:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: var(--color-primary);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
 }
 
 input:focus-visible {
-    outline: 3px solid #667eea;
+    outline: 3px solid var(--color-primary);
     outline-offset: 2px;
 }
 
 button {
-    padding: 14px 20px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--gradient-primary);
     color: white;
     border: none;
-    border-radius: 10px;
-    font-size: 16px;
     font-weight: 600;
     cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s, background 0.2s;
-    width: 100%;
-    /* Touch-friendly minimum height (Apple HIG recommends 44px) */
-    min-height: 48px;
 }
 
 button:focus-visible {
-    outline: 3px solid #667eea;
+    outline: 3px solid var(--color-primary);
     outline-offset: 2px;
 }
 
@@ -193,7 +224,7 @@ button:hover:not(:disabled) {
 
 button:active:not(:disabled) {
     transform: translateY(0);
-    background: linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%);
+    background: var(--gradient-primary-hover);
 }
 
 button:disabled {
@@ -202,33 +233,35 @@ button:disabled {
     transform: none;
 }
 
+/* ======== Messages ======== */
+
 .lobby-message,
 .game-message {
-    padding: 12px 15px;
+    padding: var(--spacing-md) 15px;
     background: #fff3cd;
-    border: 2px solid #ffc107;
-    border-radius: 10px;
+    border: 2px solid var(--color-warning);
+    border-radius: var(--radius-md);
     text-align: center;
     font-weight: 600;
     color: #856404;
     word-break: break-word;
     animation: slideIn 0.3s ease-out;
-    font-size: 14px;
+    font-size: var(--font-size-base);
 }
 
 .game-message {
-    margin-top: 12px;
+    margin-top: var(--spacing-md);
 }
 
 .game-message.success {
     background: #d4edda;
-    border-color: #28a745;
+    border-color: var(--color-success);
     color: #155724;
 }
 
 .game-message.error {
     background: #f8d7da;
-    border-color: #dc3545;
+    border-color: var(--color-danger);
     color: #721c24;
 }
 
@@ -256,11 +289,11 @@ button:disabled {
     flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
-    padding: 10px 12px;
-    background: #f5f5f5;
-    border-radius: 10px;
-    gap: 8px;
+    margin-bottom: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--color-bg-light);
+    border-radius: var(--radius-md);
+    gap: var(--spacing-sm);
 }
 
 .player-info {
@@ -268,7 +301,7 @@ button:disabled {
     align-items: center;
     gap: 6px;
     font-weight: 600;
-    font-size: 13px; /* Minimum 12px met */
+    font-size: var(--font-size-md);
     flex: 1;
     min-width: 0; /* Allow text truncation */
 }
@@ -283,12 +316,12 @@ button:disabled {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    border: 2px solid #333;
+    border: 2px solid var(--color-text);
     flex-shrink: 0;
 }
 
 .color-indicator.red {
-    background: #a01830; /* Darkened for WCAG AA contrast */
+    background: #c41e3a;
 }
 
 /* High contrast mode support for accessibility */
@@ -311,20 +344,20 @@ button:disabled {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: var(--spacing-xs);
     flex: 1 0 100%;
     order: -1; /* Show turn indicator first on mobile */
 }
 
 #turnIndicator {
     font-weight: 600;
-    color: #667eea;
-    font-size: 14px; /* Minimum 14px for better readability */
+    color: var(--color-primary);
+    font-size: 13px;
     text-align: center;
 }
 
 #turnIndicator.your-turn {
-    color: #28a745;
+    color: var(--color-success);
     animation: pulse-green 2s infinite;
 }
 
@@ -333,12 +366,12 @@ button:disabled {
 }
 
 #turnIndicator.check {
-    color: #dc3545;
+    color: var(--color-danger);
     animation: pulse-red 1s infinite;
 }
 
 #turnIndicator.game-over {
-    color: #dc3545;
+    color: var(--color-danger);
     font-size: 15px;
 }
 
@@ -367,14 +400,14 @@ button:disabled {
 
 .room-id-box small {
     color: #999;
-    font-size: 12px; /* Minimum 12px for accessibility */
+    font-size: var(--font-size-xs);
 }
 
 .room-id-box code {
-    font-size: 12px; /* Minimum 12px for accessibility */
+    font-size: var(--font-size-sm);
     background: #eee;
-    padding: 3px 8px;
-    border-radius: 4px;
+    padding: 3px var(--spacing-sm);
+    border-radius: var(--radius-sm);
     max-width: 100px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -393,10 +426,11 @@ button:disabled {
 }
 
 #leaveRoomBtn {
-    padding: 8px 12px;
-    font-size: 12px;
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: var(--font-size-md);
     width: auto;
-    min-height: 44px; /* Touch-friendly minimum (Apple HIG recommends 44px) */
+    min-height: 36px;
+    /* Ensure touch target size */
     min-width: 60px;
 }
 
@@ -407,7 +441,7 @@ button:disabled {
     justify-content: center;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 8px 0;
+    padding: var(--spacing-sm) 0;
     -webkit-overflow-scrolling: touch;
     /* Hide scrollbar on mobile but keep functionality */
     scrollbar-width: thin;
@@ -419,35 +453,15 @@ button:disabled {
     position: relative;
     width: var(--board-width);
     height: var(--board-height);
-    background: linear-gradient(180deg, #f5deb3 0%, #deb887 50%, #f5deb3 100%);
+    background: var(--gradient-board);
     border: 3px solid #8b4513;
     border-radius: 6px;
     flex-shrink: 0;
     box-shadow: 
         inset 0 0 15px rgba(139, 69, 19, 0.1),
         0 4px 12px rgba(0, 0, 0, 0.2);
-    /* Hardware acceleration for smoother rendering */
-    will-change: transform;
-    /* Focus indicator for accessibility */
-    outline: none;
-}
-
-#chessBoard:focus {
-    outline: 3px solid #667eea;
-    outline-offset: 2px;
-}
-
-#chessBoard:focus-visible {
-    outline: 3px solid #667eea;
-    outline-offset: 2px;
-}
-
-/* Fallback for older Safari that doesn't support :focus-visible */
-@supports not selector(:focus-visible) {
-    #chessBoard:focus {
-        outline: 3px solid #667eea;
-        outline-offset: 2px;
-    }
+    /* Removed will-change: transform as it's not actively animating.
+       Only use will-change when you know an element will change soon. */
 }
 
 .board-line {
@@ -478,7 +492,7 @@ button:disabled {
     display: flex;
     justify-content: center;
     align-items: center;
-    font-size: 14px;
+    font-size: var(--font-size-base);
     color: #8b4513;
     font-weight: bold;
     letter-spacing: 4px;
@@ -492,6 +506,12 @@ button:disabled {
 }
 
 /* ======== Chess Pieces ======== */
+/* 
+ * Optimization: Using solid background instead of gradient for better rendering
+ * performance. 32 pieces with gradients can impact rendering on mobile devices.
+ * The gradient effect is replaced with a subtle solid background that still
+ * looks polished but renders faster.
+ */
 
 .chess-piece {
     position: absolute;
@@ -515,16 +535,18 @@ button:disabled {
 }
 
 .chess-piece.red {
-    background: linear-gradient(145deg, #fff 0%, #f0f0f0 100%);
-    color: #a01830; /* Darkened for WCAG AA contrast */
-    border-color: #a01830; /* Darkened for WCAG AA contrast */
+    /* Optimized: solid background instead of gradient */
+    background: #fafafa;
+    color: #c41e3a;
+    border-color: #c41e3a;
     box-shadow: 
         0 2px 4px rgba(0, 0, 0, 0.1),
         inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .chess-piece.black {
-    background: linear-gradient(145deg, #fff 0%, #f0f0f0 100%);
+    /* Optimized: solid background instead of gradient */
+    background: #fafafa;
     color: #1a1a1a;
     border-color: #1a1a1a;
     box-shadow: 
@@ -542,11 +564,8 @@ button:disabled {
     box-shadow: 
         0 0 0 3px rgba(102, 126, 234, 0.5),
         0 6px 20px rgba(102, 126, 234, 0.4);
-    border-color: #667eea;
+    border-color: var(--color-primary);
     z-index: 15;
-    /* Non-color indicator for accessibility: pattern/shape */
-    outline: 3px dashed rgba(102, 126, 234, 0.8);
-    outline-offset: 2px;
 }
 
 .chess-piece.last-moved {
@@ -560,7 +579,7 @@ button:disabled {
     .chess-piece {
         /* Increase touch target area without visual change */
         margin: -4px;
-        padding: 4px;
+        padding: var(--spacing-xs);
     }
     
     .chess-piece:hover {
@@ -585,13 +604,10 @@ button:disabled {
     transition: transform 0.15s, background 0.15s;
     touch-action: manipulation;
     /* Make valid move indicators more touch-friendly */
-    min-width: 24px;
-    min-height: 24px;
+    min-width: var(--spacing-2xl);
+    min-height: var(--spacing-2xl);
     margin-left: -5px;
     margin-top: -5px;
-    /* Non-color indicator for accessibility: ring/border */
-    border: 2px solid rgba(102, 126, 234, 0.9);
-    box-shadow: 0 0 4px rgba(102, 126, 234, 0.6);
 }
 
 .valid-move:hover {
@@ -600,17 +616,14 @@ button:disabled {
 }
 
 .valid-move.capture {
-    width: 20px;
-    height: 20px;
+    width: var(--spacing-xl);
+    height: var(--spacing-xl);
     background: radial-gradient(circle, rgba(220, 53, 69, 0.5) 0%, rgba(220, 53, 69, 0.3) 100%);
-    border: 2px dashed #dc3545;
+    border: 2px dashed var(--color-danger);
     min-width: 28px;
     min-height: 28px;
     margin-left: -4px;
     margin-top: -4px;
-    /* Non-color indicator for accessibility: square shape for capture moves */
-    border-radius: 4px !important;
-    box-shadow: 0 0 6px rgba(220, 53, 69, 0.7);
 }
 
 .valid-move.capture:hover {
@@ -646,24 +659,24 @@ button:disabled {
     display: flex;
     align-items: center;
     gap: 5px;
-    font-size: 12px; /* Minimum 12px for accessibility */
-    color: #666;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-light);
 }
 
 .opponent-status .status-dot {
-    width: 8px;
-    height: 8px;
+    width: var(--spacing-sm);
+    height: var(--spacing-sm);
     border-radius: 50%;
     background: #6c757d;
 }
 
 .opponent-status .status-dot.online {
-    background: #28a745;
+    background: var(--color-success);
     box-shadow: 0 0 4px rgba(40, 167, 69, 0.5);
 }
 
 .opponent-status .status-dot.offline {
-    background: #dc3545;
+    background: var(--color-danger);
 }
 
 /* ======== Loading States ======== */
@@ -678,8 +691,8 @@ button:disabled {
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 20px;
-    height: 20px;
+    width: var(--spacing-xl);
+    height: var(--spacing-xl);
     margin: -10px 0 0 -10px;
     border: 2px solid transparent;
     border-top-color: currentColor;
@@ -699,7 +712,7 @@ button:disabled {
 @media (min-width: 375px) {
     :root {
         --board-cell-size: 40px;
-        --board-padding: 20px;
+        --board-padding: var(--spacing-xl);
         --piece-size: 36px;
     }
     
@@ -717,12 +730,12 @@ button:disabled {
     }
     
     .river {
-        font-size: 16px;
+        font-size: var(--font-size-lg);
         letter-spacing: 5px;
     }
     
     #turnIndicator {
-        font-size: 14px;
+        font-size: var(--font-size-base);
     }
 }
 
@@ -735,12 +748,12 @@ button:disabled {
     }
     
     .screen {
-        padding: 20px;
+        padding: var(--spacing-xl);
     }
     
     #lobby h1 {
         font-size: 1.7em;
-        margin-bottom: 24px;
+        margin-bottom: var(--spacing-2xl);
     }
     
     .chess-piece {
@@ -753,7 +766,7 @@ button:disabled {
     }
     
     .game-header {
-        padding: 12px 14px;
+        padding: var(--spacing-md) 14px;
     }
     
     .player-info {
@@ -761,7 +774,7 @@ button:disabled {
     }
     
     #turnIndicator {
-        font-size: 14px; /* Minimum 14px for better readability */
+        font-size: 15px;
     }
 }
 
@@ -769,7 +782,7 @@ button:disabled {
 @media (min-width: 500px) {
     :root {
         --board-cell-size: 48px;
-        --board-padding: 24px;
+        --board-padding: var(--spacing-2xl);
         --piece-size: 44px;
         --board-line-width: 2px;
     }
@@ -780,7 +793,7 @@ button:disabled {
     
     .screen {
         padding: 25px;
-        border-radius: 20px;
+        border-radius: var(--radius-2xl);
     }
     
     #lobby h1 {
@@ -789,7 +802,7 @@ button:disabled {
     }
     
     .lobby-container {
-        gap: 20px;
+        gap: var(--spacing-xl);
     }
     
     .room-section h2 {
@@ -806,22 +819,22 @@ button:disabled {
     }
     
     .valid-move.capture {
-        width: 24px;
-        height: 24px;
+        width: var(--spacing-2xl);
+        height: var(--spacing-2xl);
     }
     
     .river {
-        font-size: 20px;
-        letter-spacing: 8px;
+        font-size: var(--spacing-xl);
+        letter-spacing: var(--spacing-sm);
     }
     
     #turnIndicator {
-        font-size: 14px;
+        font-size: var(--font-size-lg);
     }
     
     .game-header {
         flex-wrap: nowrap;
-        padding: 14px 16px;
+        padding: 14px var(--spacing-lg);
     }
     
     .game-status {
@@ -843,12 +856,12 @@ button:disabled {
     }
     
     .screen {
-        padding: 30px;
+        padding: var(--spacing-3xl);
     }
     
     #lobby h1 {
-        font-size: 2em;
-        margin-bottom: 30px;
+        font-size: var(--font-size-2xl);
+        margin-bottom: var(--spacing-3xl);
     }
     
     .chess-piece {
@@ -876,22 +889,22 @@ button:disabled {
     }
     
     .screen {
-        padding: 10px;
-        border-radius: 10px;
+        padding: var(--spacing-md);
+        border-radius: var(--radius-md);
     }
     
     #lobby h1 {
         font-size: 1.2em;
-        margin-bottom: 10px;
+        margin-bottom: var(--spacing-md);
     }
     
     .lobby-container {
-        gap: 10px;
+        gap: var(--spacing-md);
     }
     
     .game-header {
         margin-bottom: 6px;
-        padding: 6px 10px;
+        padding: 6px var(--spacing-md);
         flex-wrap: nowrap;
     }
     
@@ -905,12 +918,12 @@ button:disabled {
     }
     
     .chess-piece {
-        font-size: 14px;
+        font-size: var(--font-size-base);
     }
     
     .valid-move {
-        width: 12px;
-        height: 12px;
+        width: var(--spacing-md);
+        height: var(--spacing-md);
     }
     
     .valid-move.capture {
@@ -919,27 +932,27 @@ button:disabled {
     }
     
     .river {
-        font-size: 12px;
+        font-size: var(--spacing-md);
         letter-spacing: 3px;
     }
     
     #turnIndicator {
-        font-size: 12px;
+        font-size: var(--spacing-md);
     }
     
     .game-message {
-        margin-top: 8px;
-        padding: 8px 10px;
-        font-size: 12px;
+        margin-top: var(--spacing-sm);
+        padding: var(--spacing-sm) var(--spacing-md);
+        font-size: var(--spacing-md);
     }
     
     button {
-        min-height: 44px; /* Touch-friendly minimum (Apple HIG recommends 44px) */
+        min-height: 40px;
     }
     
     input {
-        min-height: 44px; /* Touch-friendly minimum (Apple HIG recommends 44px) */
-        padding: 10px 12px;
+        min-height: 40px;
+        padding: 10px var(--spacing-md);
     }
 }
 
@@ -956,17 +969,17 @@ button:disabled {
     }
     
     .screen {
-        padding: 12px;
-        border-radius: 12px;
+        padding: var(--spacing-md);
+        border-radius: var(--radius-lg);
     }
     
     #lobby h1 {
         font-size: 1.3em;
-        margin-bottom: 16px;
+        margin-bottom: var(--spacing-lg);
     }
     
     .lobby-container {
-        gap: 12px;
+        gap: var(--spacing-md);
     }
     
     .room-section h2 {
@@ -974,16 +987,16 @@ button:disabled {
     }
     
     .game-header {
-        padding: 8px 10px;
+        padding: var(--spacing-sm) var(--spacing-md);
         gap: 6px;
     }
     
     .player-info {
-        font-size: 12px; /* Minimum 12px for accessibility */
+        font-size: var(--font-size-sm);
     }
     
     #turnIndicator {
-        font-size: 12px;
+        font-size: var(--spacing-md);
     }
     
     .chess-piece {
@@ -996,8 +1009,8 @@ button:disabled {
     }
     
     .valid-move {
-        width: 12px;
-        height: 12px;
+        width: var(--spacing-md);
+        height: var(--spacing-md);
     }
     
     .valid-move.capture {
@@ -1006,52 +1019,58 @@ button:disabled {
     }
     
     button {
-        padding: 12px 16px;
+        padding: var(--spacing-md) var(--spacing-lg);
         font-size: 15px;
     }
     
     .game-message {
         padding: 10px;
-        font-size: 12px;
+        font-size: var(--spacing-md);
     }
 }
 
 /* ======== Dark Mode Support ======== */
 
 @media (prefers-color-scheme: dark) {
+    :root {
+        --color-text: #e0e0e0;
+        --color-text-muted: #b0b0b0;
+        --color-bg-light: #2a2a3d;
+    }
+    
     body {
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     }
 
     .screen {
         background: #1e1e2f;
-        color: #e0e0e0;
+        color: var(--color-text);
     }
 
     #lobby h1 {
-        color: #e0e0e0;
+        color: var(--color-text);
     }
 
     .room-section h2 {
-        color: #b0b0b0;
+        color: var(--color-text-muted);
     }
 
     input {
         background: #2a2a3d;
         border-color: #3a3a4d;
-        color: #e0e0e0;
+        color: var(--color-text);
     }
 
     input:focus {
-        border-color: #667eea;
+        border-color: var(--color-primary);
     }
 
     .game-header {
-        background: #2a2a3d;
+        background: var(--color-bg-light);
     }
 
     .player-info {
-        color: #e0e0e0;
+        color: var(--color-text);
     }
 
     #turnIndicator {
@@ -1068,7 +1087,7 @@ button:disabled {
 
     .room-id-box code {
         background: #3a3a4d;
-        color: #e0e0e0;
+        color: var(--color-text);
     }
 
     .room-id-box code:hover {
@@ -1084,13 +1103,13 @@ button:disabled {
 
     .game-message.success {
         background: #1a3d1a;
-        border-color: #28a745;
+        border-color: var(--color-success);
         color: #90ee90;
     }
 
     .game-message.error {
         background: #3d1a1a;
-        border-color: #dc3545;
+        border-color: var(--color-danger);
         color: #ff9999;
     }
 

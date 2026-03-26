@@ -4,7 +4,7 @@
 -- Rooms table
 CREATE TABLE IF NOT EXISTS rooms (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL UNIQUE CHECK (length(name) > 0 AND length(name) <= 100),
     created_at INTEGER NOT NULL,
     red_player_id TEXT,
     black_player_id TEXT,
