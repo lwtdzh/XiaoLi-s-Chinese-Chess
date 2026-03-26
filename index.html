@@ -41,9 +41,40 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+        /* Skip link for accessibility */
+        .skip-link {
+            position: absolute;
+            top: -100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #667eea;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            z-index: 1000;
+            transition: top 0.3s;
+        }
+        .skip-link:focus {
+            top: 10px;
+        }
+        /* Visually hidden but accessible to screen readers */
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
     </style>
 </head>
 <body>
+    <a href="#game" class="skip-link">跳转到游戏棋盘</a>
     <div id="app" role="application" aria-label="中国象棋游戏">
         <!-- Lobby Screen -->
         <div id="lobby" class="screen" role="region" aria-label="游戏大厅">
@@ -51,12 +82,16 @@
             <div class="lobby-container">
                 <div class="room-section">
                     <h2>创建房间</h2>
-                    <input type="text" id="roomName" placeholder="输入房间名称" maxlength="100" aria-label="房间名称" aria-required="true" autocomplete="off">
+                    <label for="roomName" class="visually-hidden">房间名称</label>
+                    <input type="text" id="roomName" placeholder="输入房间名称" maxlength="100" aria-describedby="roomNameHelp" autocomplete="off">
+                    <span id="roomNameHelp" class="visually-hidden">输入您想创建的房间名称</span>
                     <button id="createRoomBtn" aria-label="创建新房间" type="button">创建房间</button>
                 </div>
                 <div class="room-section">
                     <h2>加入房间</h2>
-                    <input type="text" id="joinRoomId" placeholder="输入房间 ID 或名称" aria-label="房间 ID 或名称" aria-required="true" autocomplete="off">
+                    <label for="joinRoomId" class="visually-hidden">房间 ID 或名称</label>
+                    <input type="text" id="joinRoomId" placeholder="输入房间 ID 或名称" aria-describedby="joinRoomHelp" autocomplete="off">
+                    <span id="joinRoomHelp" class="visually-hidden">输入您想加入的房间ID或名称</span>
                     <button id="joinRoomBtn" aria-label="加入指定房间" type="button">加入房间</button>
                 </div>
                 <div id="lobbyMessage" class="lobby-message hidden" role="alert" aria-live="polite"></div>
@@ -64,7 +99,7 @@
         </div>
 
         <!-- Game Screen -->
-        <div id="game" class="screen hidden" role="region" aria-label="游戏棋盘">
+        <div id="game" class="screen hidden" role="region" aria-label="游戏棋盘" tabindex="-1">
             <div class="game-header">
                 <div class="player-info" aria-label="对手信息">
                     <span id="opponentName" aria-label="对手名称">等待对手加入...</span>
